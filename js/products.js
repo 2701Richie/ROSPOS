@@ -1,0 +1,13 @@
+// products.js: Products tab (managers and owners): add/edit form, quantity Add/Set, stock log
+function drawProd(){const q=$('#ps').value.trim().toLowerCase(),all=[...S.p].sort((a,b)=>a.n.localeCompare(b.n)),l=all.filter(p=>!q||p.n.toLowerCase().includes(q));
+$('#pc').textContent='Showing '+l.length+' of '+all.length+' products';
+$('#pt').innerHTML=l.map(p=>`<tr><td>${esc(p.n)}</td><td>${M(p.p)}</td><td><b>${p.s}</b></td><td>${p.e||'—'}</td><td>${tags(p)}</td><td style="white-space:nowrap"><input class="qv" inputmode="numeric" style="width:84px" aria-label="Quantity for ${esc(p.n)}"> <button class="pri" data-a="add" data-id="${p.id}">Add</button> <button data-a="set" data-id="${p.id}">Set</button></td><td style="white-space:nowrap"><button data-e="${p.id}">Edit</button> <button data-x="${p.id}">Delete</button></td></tr>`).join('')||'<tr><td colspan="7" class="mu">No products found.</td></tr>';
+$('#rl').innerHTML=S.g.slice(-20).reverse().map(g=>`<tr><td>${g.d} ${g.t}</td><td>${esc(g.n)}</td><td>${esc(g.k)}</td><td>${esc(g.u||'')}</td><td>${g.a} → ${g.z}</td></tr>`).join('')||'<tr><td colspan="5" class="mu">No stock changes yet.</td></tr>'}
+function clearForm(){edit=null;['fn','fp','fe','fm','fs'].forEach(i=>$('#'+i).value='');$('#fsl').hidden=false;$('#sv').textContent='Save product';$('#fmsg').textContent=''}
+$('#sv').onclick=async()=>{const n=$('#fn').value.trim(),p=parseFloat($('#fp').value),m=$('#fmsg');if(!n||isNaN(p)||p<0){m.textContent='Enter a product name and a valid price.';return}const r=await api('/api/product',{id:edit,n,p,e:$('#fe').value,m:parseInt($('#fm').value)||0,s:parseInt($('#fs').value)||0});if(r.error)return fail(r,m);clearForm();drawProd();drawGrid();drawLines()};
+$('#cf').onclick=clearForm;
+$('#ps').oninput=drawProd;
+$('#pt').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const m=$('#rm');m.textContent='';
+if(b.dataset.e){const p=S.p.find(x=>x.id==b.dataset.e);edit=p.id;$('#fn').value=p.n;$('#fp').value=p.p;$('#fe').value=p.e;$('#fm').value=p.m;$('#fsl').hidden=true;$('#sv').textContent='Update product';window.scrollTo(0,0)}
+else if(b.dataset.x){if(b.dataset.s){const r=await api('/api/delete',{id:+b.dataset.x});if(r.error)return fail(r,m);clampCart();drawProd();drawGrid();drawLines()}else{b.dataset.s=1;b.textContent='Sure?'}}
+else if(b.dataset.a){const r=await api('/api/stock',{id:+b.dataset.id,mode:b.dataset.a,v:b.closest('tr').querySelector('.qv').value.trim()});if(r.error)return fail(r,m);clampCart();drawProd();drawGrid();drawLines();m.textContent=r.msg}};
