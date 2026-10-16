@@ -277,3 +277,5 @@ button.pri.big{box-shadow:0 7px 18px rgba(17,107,89,.18)}
 @keyframes live-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @media(max-width:600px){.live-kpis{grid-template-columns:1fr}.live-kpis .card{padding:13px}.live-feed{grid-template-columns:1fr}.live-sale{padding:13px}.live-items li{gap:8px}.live-sale-bottom{align-items:flex-start;flex-direction:column;gap:5px}}
 @media(prefers-reduced-motion:reduce){.live-new,.live-dot{animation:none!important}}
+
+.forecast-warn{margin:14px 0 4px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.45;background:rgba(245,166,35,.14);border:1px solid rgba(245,166,35,.45)}

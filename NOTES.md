@@ -19,6 +19,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `js/reports.js` | Reports tab: today's totals, alerts, recent sales, backup show/restore |
 | `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Client only, no server change |
 | `js/receipts.js` | Receipts tab: sale list, view, PIN-protected void and change popups |
+| `js/livesales.js` | Live Sales tab: rotating slideshow of the newest transactions (each shown up to 2 minutes), refreshed every 5 seconds from `/api/state`. Client only |
 | `js/main.js` | Startup and the 15-second refresh on the Sell tab |
 
 Scripts are plain (not modules) and share one global scope. Load order is in `index.html`.
@@ -70,5 +71,5 @@ Errors come back as `{error}`.
 
 Sections on products with responsible staff, printable count sheets, a manager "check counts" screen and a differences report (planned next). Later: write-offs, daily comparison with the official POS, batch numbers, HTTPS and a sturdier web server if it moves to the cloud.
 
-- Sales forecast in Reports: client-side 7/30/90-day store-wide revenue and transaction estimates from non-voided sales, using weekday averages and a capped recent trend factor. Forecasts are estimates, not guarantees; sparse history reduces reliability. No extra libraries or server endpoint are required.
+- Sales forecast in Reports: client-side 7/30/90-day store-wide revenue and transaction estimates from non-voided sales, using weekday averages and a capped recent trend factor. Forecasts are estimates, not guarantees. Confidence is shown from days of history: under 28 days is "low" (about ±40% range), under 56 is "medium" (±25%), more is normal (±15%); the 90-day view adds 10 points. The likely range appears under the projected revenue. Reports "Low stock" only lists products with a reorder level above 0, same as the Reorder tab. No extra libraries or server endpoint are required.
 - UI polish: subtle hover/focus states, responsive forecast cards/chart, quick SVG line animation, and reduced-motion support. Forecast data is calculated in the browser from the loaded sales state.
