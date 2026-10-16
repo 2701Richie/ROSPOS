@@ -50,8 +50,20 @@ def now():
     return d.strftime("%Y-%m-%d"), d.strftime("%I:%M %p")
 
 
+SETTING_DEFAULTS = {"store": "", "session_hours": None, "backup_days": 30}
+
+
+def settings():
+    """Owner-editable options (Settings tab). Kept apart from sales data, so a restore never changes them."""
+    with LOCK:
+        cfg = dict(SETTING_DEFAULTS, **(get("settings") or {}))
+    if cfg["session_hours"] is None:
+        cfg["session_hours"] = SESSION_HOURS
+    return cfg
+
+
 def pub():
-    return {"p": S["p"], "s": S["s"], "g": S["g"], "today": now()[0]}
+    return {"p": S["p"], "s": S["s"], "g": S["g"], "today": now()[0], "cfg": settings()}
 
 
 def log(n, k, a, z, pid=None, why=""):
@@ -153,7 +165,7 @@ def reauth(ip, b, role="manager"):
 
 def new_session(u):
     t = secrets.token_hex(24)
-    SESSIONS[t] = {"id": u["id"], "exp": time.time() + SESSION_HOURS * 3600}
+    SESSIONS[t] = {"id": u["id"], "exp": time.time() + settings()["session_hours"] * 3600}
     return t
 
 
@@ -564,7 +576,38 @@ def r_import(b, ip):
     return {"plan": plan}
 
 
-ROUTES = {"/api/sale": r_sale, "/api/product": r_product, "/api/delete": r_delete, "/api/stock": r_stock,
+SETTING_LABELS = {"store": "Store name", "session_hours": "Stay signed in (hours)", "backup_days": "Backup days kept"}
+
+
+def shown(v):
+    return "(not set)" if v == "" else v if isinstance(v, str) else "%g" % v
+
+
+def r_settings(b, ip):
+    reauth(ip, b, "owner")
+    cur = settings()
+    store = " ".join(str(b.get("store", "")).split())
+    if len(store) > 60:
+        raise Err(400, "Store name must be 60 characters or fewer.")
+    try:
+        hrs, days = float(b.get("session_hours")), int(str(b.get("backup_days")).strip())
+    except (TypeError, ValueError):
+        raise Err(400, "Enter whole numbers for backup days and a number for the sign-in hours.")
+    if not 1 <= hrs <= 72:
+        raise Err(400, "Stay signed in must be between 1 and 72 hours.")
+    if not 7 <= days <= 365:
+        raise Err(400, "Keep between 7 and 365 days of backups.")
+    new = {"store": store, "session_hours": hrs, "backup_days": days}
+    changed = [k for k in new if new[k] != cur[k]]
+    if changed:
+        put("settings", new)
+        for k in changed:
+            log("Settings", "Changed: " + SETTING_LABELS[k], shown(cur[k]), shown(new[k]), 0)
+        save()
+    return {"msg": "Settings saved." if changed else "No changes."}
+
+
+ROUTES = {"/api/settings": r_settings, "/api/sale": r_sale, "/api/product": r_product, "/api/delete": r_delete, "/api/stock": r_stock,
           "/api/void": r_void, "/api/change": r_change, "/api/restore": r_restore, "/api/import": r_import,
           "/api/users": r_users, "/api/user": r_user, "/api/mypassword": r_mypw}
 PUBLIC = {"/api/login": r_login, "/api/setup": r_setup}
@@ -577,7 +620,7 @@ class H(BaseHTTPRequestHandler):
     def cookie(self, token, clear=False):
         secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
         return "pos_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d%s" % (
-            "" if clear else token, 0 if clear else int(SESSION_HOURS * 3600), secure)
+            "" if clear else token, 0 if clear else int(settings()["session_hours"] * 3600), secure)
 
     def send(self, code, obj=None, body=None, ctype="application/json", cookie=None, disposition=None):
         data = body if body is not None else json.dumps(obj).encode()
@@ -672,7 +715,7 @@ class H(BaseHTTPRequestHandler):
 
 
 def backup_loop():
-    """Rewrites today's backup file every hour; keeps the last 30 days."""
+    """Rewrites today's backup file every hour; keeps the last N days (Settings tab, 30 by default)."""
     while True:
         try:
             os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -682,7 +725,8 @@ def backup_loop():
                 db.backup(dst)
                 dst.close()
             os.replace(f + ".tmp", f)
-            for old in sorted(x for x in os.listdir(BACKUP_DIR) if x.startswith("pos-") and x.endswith(".db"))[:-30]:
+            keep = settings()["backup_days"]
+            for old in sorted(x for x in os.listdir(BACKUP_DIR) if x.startswith("pos-") and x.endswith(".db"))[:-keep]:
                 os.remove(os.path.join(BACKUP_DIR, old))
         except Exception:
             traceback.print_exc()

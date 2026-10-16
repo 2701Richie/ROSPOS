@@ -6,13 +6,13 @@ function ds(n){return new Date(Date.now()+n*864e5).toLocaleDateString('en-CA')}
 let T=ds(0);
 let S={p:[],s:[],g:[]},cart=[],edit=null;
 let ME=null,tab='sell';
-async function api(path,body){try{const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Requested-With':'pos'},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok){if(r.status===401&&ME){ME=null;showAuth(false)}return{error:j.error||'Something went wrong.'}}if(j.me)ME=j.me;if(j.state){S=j.state;T=S.today;if(typeof badge==='function')badge()}return j}catch(e){return{error:'Cannot reach the POS server. Check the Wi-Fi and the laptop.'}}}
+async function api(path,body){try{const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Requested-With':'pos'},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok){if(r.status===401&&ME){ME=null;showAuth(false)}return{error:j.error||'Something went wrong.'}}if(j.me)ME=j.me;if(j.state){S=j.state;T=S.today;if(typeof badge==='function')badge();if(typeof applyBrand==='function')applyBrand()}return j}catch(e){return{error:'Cannot reach the POS server. Check the Wi-Fi and the laptop.'}}}
 async function load(){const r=await api('/api/state');if(r.error)say(r.error);return r}
 function say(t){$('#msg').textContent=t}
 function tags(p){let t='';if(p.e&&p.e<T)t+='<span class="tag b">Expired</span> ';else if(p.e&&p.e<=ds(90))t+='<span class="tag w">Exp. '+p.e+'</span> ';if(p.s<=p.m)t+='<span class="tag b">Low stock: '+p.s+'</span>';return t}
-function show(t){if(!can(PERM[t]||'staff'))t='sell';tab=t;['sell','live','rcp','prod','rdr','rep','acc'].forEach(k=>{$('#v-'+k).hidden=k!==t;document.querySelector('nav [data-t="'+k+'"]').classList.toggle('on',k===t)});if(t==='rep')drawRep();if(t==='prod')drawProd();if(t==='rcp')drawRcp();if(t==='rdr')drawRdr();if(t==='acc')drawAcc();if(t==='live')refreshLive()}
+function show(t){if(!can(PERM[t]||'staff'))t='sell';tab=t;['sell','live','rcp','prod','rdr','rep','acc','set'].forEach(k=>{$('#v-'+k).hidden=k!==t;document.querySelector('nav [data-t="'+k+'"]').classList.toggle('on',k===t)});if(t==='rep')drawRep();if(t==='prod')drawProd();if(t==='rcp')drawRcp();if(t==='rdr')drawRdr();if(t==='acc')drawAcc();if(t==='set')drawSet();if(t==='live')refreshLive()}
 document.querySelector('nav').onclick=e=>{const b=e.target.closest('button');if(b)show(b.dataset.t)};
-const LV={staff:1,manager:2,owner:3},PERM={sell:'staff',live:'manager',rcp:'staff',rdr:'staff',prod:'manager',rep:'manager',acc:'owner'};
+const LV={staff:1,manager:2,owner:3},PERM={sell:'staff',live:'manager',rcp:'staff',rdr:'staff',prod:'manager',rep:'manager',acc:'owner',set:'owner'};
 let setupMode=false;
 function can(r){return !!ME&&LV[ME.role]>=LV[r]}
 function fail(r,el){el.textContent=r.error}

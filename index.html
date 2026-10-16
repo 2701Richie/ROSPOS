@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="acc">Accounts</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
+<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
 <main>
 <section id="v-sell" class="two" hidden>
 <div><input id="q" type="search" placeholder="Search products" autocomplete="off" aria-label="Search products"><div id="grid"></div></div>
@@ -61,6 +61,12 @@
 <div class="acts"><button class="pri" id="xs">Save account</button><button id="xc">Cancel</button></div><div id="xm" class="err" role="status"></div></div>
 <div class="card wrap" style="margin-top:16px"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody id="xt"></tbody></table></div>
 </section>
+<section id="v-set" hidden>
+<div class="card"><h2>Settings</h2><p class="mu" style="margin-top:0">Owner only. These are saved in the database, not in the code, and every change is recorded in the activity log.</p>
+<div class="form"><label>Store name<input id="sn" maxlength="60" autocomplete="off" placeholder="Shown in the header, order list and receipts"></label><label>Stay signed in for (hours)<input id="sh" inputmode="decimal"></label><label>Days of backups to keep<input id="sd" inputmode="numeric"></label><label>Your password (to confirm)<input id="sp" type="password" autocomplete="current-password"></label></div>
+<p class="mu">Sign-in length applies to new sign-ins only. A shorter backup period deletes the older daily backups within the hour.</p>
+<div class="acts"><button class="pri" id="ss">Save settings</button><button id="sr">Undo changes</button></div><div id="sm" class="err" role="status"></div></div>
+</section>
 <section id="v-rdr" hidden>
 <div class="card"><div style="display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap"><h2 style="margin:0">What to order</h2>
 <label style="width:220px">Getting low: % above reorder level<input id="rmg" inputmode="numeric"></label></div>
@@ -107,6 +113,7 @@
 <script src="/js/receipts.js"></script>
 <script src="/js/livesales.js"></script>
 <script src="/js/accounts.js"></script>
+<script src="/js/settings.js"></script>
 <script src="/js/main.js"></script>
 </body>
 </html>

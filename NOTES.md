@@ -15,6 +15,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`), checkout (`#pay`), `receipt()` popup, `clampCart` |
 | `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, stock log with who made each change |
 | `js/accounts.js` | Accounts tab (owner): add accounts, roles, reset password, disable |
+| `js/settings.js` | Settings tab (owner): store name, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt |
 | `js/import.js` | CSV import (preview, apply), export products, download template. Parsing happens in the browser, rules in `r_import` |
 | `js/reports.js` | Reports tab: today's totals, alerts, recent sales, backup show/restore |
 | `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Client only, no server change |
@@ -46,13 +47,14 @@ Sessions use an HttpOnly cookie (`pos_session`, SameSite=Strict, 12 hours, `POS_
 | `/api/void`, `/api/change` | manager and up, plus `password` of the signed-in user in the request | Void or amend a sale |
 | `/api/restore` | owner, plus `password` | Restore a backup |
 | `/api/users`, `/api/user` | owner | List, add, edit, disable accounts (always one active owner) |
+| `/api/settings` | owner (re-enter password) | Save store name, stay-signed-in hours (1 to 72), backup days kept (7 to 365). Stored in the `kv` table under `settings`, outside the sales data so a restore never changes them. Each change is written to the activity log as product "Settings". Sent to every client as `S.cfg` |
 | `/api/mypassword` | signed in | Change own password (`old`, `new`) |
 
 Errors come back as `{error}`.
 
 ## Rules already decided
 
-- Roles: staff sell, view and reprint receipts, and see the Reorder list. Managers also change products and stock, import CSV, see Reports and Live Sales, and void or change sales (re-entering their own password). Owners also manage accounts and restore backups. The server enforces this; hiding tabs is only for tidiness.
+- Roles: staff sell, view and reprint receipts, and see the Reorder list. Managers also change products and stock, import CSV, see Reports and Live Sales, and void or change sales (re-entering their own password). Owners also manage accounts, settings and restore backups. The server enforces this; hiding tabs is only for tidiness.
 - Every sale, stock change, price change, void and change records the signed-in person's name. Checkout stock reductions are recorded in the inventory accountability log. Product deletion and CSV imports require a reason; routine stock changes are logged with an automatic description.
 - No discounts and no VAT: the price is the price. Old sales from earlier versions may still show a discount.
 - Expired products can't be sold. Selling past stock is refused. Expiry date is optional per product; blank means never flagged or blocked.
