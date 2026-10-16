@@ -52,7 +52,7 @@ Errors come back as `{error}`.
 
 ## Rules already decided
 
-- Roles: staff sell, view and reprint receipts, and see the Reorder list. Managers also change products and stock, import CSV, see Reports, and void or change sales (re-entering their own password). Owners also manage accounts and restore backups. The server enforces this; hiding tabs is only for tidiness.
+- Roles: staff sell, view and reprint receipts, and see the Reorder list. Managers also change products and stock, import CSV, see Reports and Live Sales, and void or change sales (re-entering their own password). Owners also manage accounts and restore backups. The server enforces this; hiding tabs is only for tidiness.
 - Every sale, stock change, price change, void and change records the signed-in person's name. Checkout stock reductions are recorded in the inventory accountability log. Product deletion and CSV imports require a reason; routine stock changes are logged with an automatic description.
 - No discounts and no VAT: the price is the price. Old sales from earlier versions may still show a discount.
 - Expired products can't be sold. Selling past stock is refused. Expiry date is optional per product; blank means never flagged or blocked.
