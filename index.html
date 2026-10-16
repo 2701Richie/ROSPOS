@@ -24,9 +24,15 @@
 <div id="msg" class="err" role="status"></div></aside>
 </section>
 <section id="v-live" hidden>
-<div class="live-heading"><div><span class="eyebrow">STORE ACTIVITY</span><h2>Live Sales</h2><p class="mu">Recent transactions with item names for quick menu verification.</p></div><div class="live-status"><span class="live-dot"></span><span id="liveStatus">Connecting…</span><button id="liveRefresh" type="button">Refresh</button></div></div>
+<div class="live-heading"><div><span class="eyebrow">STORE ACTIVITY</span><h2>Live Sales</h2><p class="mu">Today's sales as they happen. Tap a sale to see what was sold.</p></div><div class="live-status"><span class="live-dot"></span><span id="liveStatus">Connecting…</span><button id="liveRefresh" type="button">Refresh</button></div></div>
 <div class="live-kpis"><div class="card"><span class="mu">Today's completed sales</span><strong id="liveCount">—</strong></div><div class="card"><span class="mu">Today's sales total</span><strong id="liveRevenue">—</strong></div><div class="card"><span class="mu">Latest sale</span><strong id="liveLatest">—</strong></div></div>
-<div id="liveFeed" class="live-feed" aria-live="polite"><div class="card mu">Loading recent sales…</div></div>
+<div class="live-grid">
+<div class="live-col">
+<div class="live-tools"><select id="liveStatusF" aria-label="Filter by status"><option value="all">All sales</option><option value="ok">Completed</option><option value="void">Voided</option><option value="amended">Amended</option></select><select id="liveBy" aria-label="Filter by cashier"><option value="">All cashiers</option></select></div>
+<div id="liveFeed" class="live-feed" aria-live="polite"><div class="card mu">Loading today's sales…</div></div>
+</div>
+<aside class="card live-tally"><h3>Sold today by product</h3><p class="mu" id="liveTallyTotal"></p><input id="liveQ" type="search" placeholder="Search product" autocomplete="off" aria-label="Search sold products"><div id="liveTally"></div></aside>
+</div>
 </section>
 <section id="v-rcp" hidden>
 <div class="card"><input id="rq" type="search" placeholder="Search by sale number or date (YYYY-MM-DD)" autocomplete="off" aria-label="Search receipts"><p class="mu" style="margin:8px 0">Changing or voiding a sale needs the owner PIN and a reason. Sales are never deleted.</p>

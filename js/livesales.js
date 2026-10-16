@@ -1,35 +1,39 @@
-// livesales.js: calm, rotating live transaction slideshow
-const LIVE_WINDOW=120000,LIVE_SLIDE_MS=8000;
-let liveBusy=false,liveQueue=[],liveActive='',liveFirstDraw=true,liveTimer=null,liveSeen=new Set();
+// livesales.js: live feed of today's sales (newest first, tap a row for items) and a sold-today-by-product tally
+let liveBusy=false,liveSeen=null,liveOpen=new Set();
 function liveStatus(text,ok=true){$('#liveStatus').textContent=text;$('.live-dot').classList.toggle('offline',!ok)}
 function liveKey(s){return String(s.no)+'|'+String(s.d||'')+'|'+String(s.t||'')}
-function liveCard(s){
- const status=s.v?'<span class="tag b">VOID</span>':s.h?'<span class="tag w">AMENDED</span>':'<span class="tag live-complete">COMPLETED</span>';
- const lines=(s.l||[]).map(l=>'<li><span class="live-item-name">'+esc(l.n)+'</span><span class="live-item-qty">× '+esc(l.q)+'</span><span class="live-item-price">'+M((Number(l.p)||0)*(Number(l.q)||0))+'</span></li>').join('');
- return '<article class="live-sale card live-slide-card"><div class="live-sale-top"><div><span class="live-sale-no">Sale #'+esc(s.no)+'</span><span class="mu live-time">'+esc((s.d||'')+' '+(s.t||''))+'</span></div>'+status+'</div><div class="live-items"><div class="live-items-label">ITEMS SOLD · '+(s.l||[]).reduce((a,l)=>a+(Number(l.q)||0),0)+' unit(s)</div><ul>'+lines+'</ul></div><div class="live-sale-bottom"><span class="mu">Cashier: <b>'+esc(s.by||'—')+'</b></span><strong>'+M(Number(s.tot)||0)+'</strong></div>'+(s.v?'<p class="live-note">Void reason: '+esc(s.v.w||'')+(s.v.u?' · '+esc(s.v.u):'')+'</p>':'')+(s.h&&s.h.length?'<p class="live-note">Sale amended · latest change '+esc(s.h[s.h.length-1].w||'')+'</p>':'');
+function liveState(s){return s.v?'void':(s.h&&s.h.length)?'amended':'ok'}
+function liveTag(s){const k=liveState(s);return k==='void'?'<span class="tag b">VOID</span>':k==='amended'?'<span class="tag w">AMENDED</span>':''}
+function liveSummary(s){const l=s.l||[],a=l.slice(0,2).map(x=>esc(x.n)+' ×'+esc(x.q)).join(', ');return (a+(l.length>2?', +'+(l.length-2)+' more':''))||'—'}
+function liveLine(l){return '<li><span class="live-item-name">'+esc(l.n)+'</span><span class="live-item-qty">× '+esc(l.q)+'</span><span class="live-item-price">'+M((Number(l.p)||0)*(Number(l.q)||0))+'</span></li>'}
+function liveRow(s,fresh){
+ const key=liveKey(s),open=liveOpen.has(key),st=liveState(s);
+ const detail=open?'<div class="live-items"><ul>'+(s.l||[]).map(liveLine).join('')+'</ul>'+(s.v?'<p class="live-note">Void reason: '+esc(s.v.w||'')+(s.v.u?' · '+esc(s.v.u):'')+'</p>':'')+(st==='amended'?'<p class="live-note">Latest change: '+esc(s.h[s.h.length-1].w||'')+'</p>':'')+'</div>':'';
+ return '<div class="live-row'+(fresh?' live-new':'')+(st!=='ok'?' '+st:'')+'"><button type="button" class="live-row-main" data-key="'+esc(key)+'" aria-expanded="'+open+'"><span class="live-row-time">'+esc(s.t||'')+'</span><span class="live-row-no">#'+esc(s.no)+'</span><span class="live-row-sum">'+liveSummary(s)+'</span><span class="live-row-by mu">'+esc(s.by||'—')+'</span><span class="live-row-tot">'+M(Number(s.tot)||0)+'</span><span class="live-row-tag">'+liveTag(s)+'</span></button>'+detail+'</div>';
 }
-function showLiveSlide(){
- const feed=$('#liveFeed'),now=Date.now();
- liveQueue=liveQueue.filter(x=>now-x.added<LIVE_WINDOW);
- if(!liveQueue.length){liveActive='';feed.innerHTML='<div class="card live-empty"><h3>Waiting for sales</h3><p class="mu">New transactions appear here and rotate like a slideshow. Each stays on screen for up to 2 minutes.</p></div>';return}
- if(!liveQueue.some(x=>x.key===liveActive))liveActive=liveQueue[0].key;
- const item=liveQueue.find(x=>x.key===liveActive)||liveQueue[0];
- feed.innerHTML='<div class="live-slideshow"><div class="live-slide-meta"><span class="eyebrow">RECENT TRANSACTION</span><span class="mu">'+(liveQueue.indexOf(item)+1)+' / '+liveQueue.length+'</span></div>'+liveCard(item.sale)+'<div class="live-slide-controls"><button id="livePrev" type="button" aria-label="Previous sale">← Previous</button><div class="live-slide-dots">'+liveQueue.map((x,i)=>'<button type="button" class="live-slide-dot'+(x.key===item.key?' on':'')+'" data-live-key="'+esc(x.key)+'" aria-label="Show sale '+(i+1)+'"></button>').join('')+'</div><button id="liveNext" type="button">Next →</button></div></div>';
- $('#livePrev').onclick=()=>stepLive(-1);$('#liveNext').onclick=()=>stepLive(1);
- feed.querySelectorAll('[data-live-key]').forEach(b=>b.onclick=()=>{liveActive=b.dataset.liveKey;showLiveSlide()});
+function drawTally(sales){
+ const map=new Map();
+ for(const s of sales){if(s.v)continue;for(const l of s.l||[]){const k=l.id!=null?'i'+l.id:'n'+l.n,r=map.get(k)||{n:String(l.n),q:0,amt:0};r.q+=Number(l.q)||0;r.amt+=(Number(l.p)||0)*(Number(l.q)||0);map.set(k,r)}}
+ const q=($('#liveQ').value||'').trim().toLowerCase(),all=[...map.values()],units=all.reduce((a,r)=>a+r.q,0);
+ const rows=all.filter(r=>!q||r.n.toLowerCase().includes(q)).sort((a,b)=>b.q-a.q||a.n.localeCompare(b.n));
+ $('#liveTallyTotal').textContent=all.length?all.length+' product(s) · '+units.toLocaleString('en-PH')+' unit(s)':'';
+ $('#liveTally').innerHTML=rows.length?'<table class="live-tally-table"><thead><tr><th>Product</th><th>Units</th><th>Amount</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.n)+'</td><td>'+r.q.toLocaleString('en-PH')+'</td><td>'+M(r.amt)+'</td></tr>').join('')+'</tbody></table>':'<p class="mu">'+(all.length?'No product matches your search.':'Nothing sold yet today.')+'</p>';
 }
-function stepLive(delta){if(!liveQueue.length)return;const i=liveQueue.findIndex(x=>x.key===liveActive);liveActive=liveQueue[(i+delta+liveQueue.length)%liveQueue.length].key;showLiveSlide()}
 function drawLive(){
- const sales=[...(S.s||[])].slice(-100).reverse(),today=(S.s||[]).filter(s=>s.d===T&&!s.v);
- $('#liveCount').textContent=today.length.toLocaleString('en-PH');
- $('#liveRevenue').textContent=M(today.reduce((a,s)=>a+(Number(s.tot)||0),0));
- $('#liveLatest').textContent=sales.length?(sales[0].t||sales[0].d):'No sales yet';
- const now=Date.now();
- // Track observed transactions separately so expired sales cannot re-enter the slideshow on the next poll.
- sales.slice().reverse().forEach(s=>{const key=liveKey(s);if(!liveSeen.has(key)){liveQueue.push({key,sale:s,added:now});liveSeen.add(key)}});
- liveQueue=liveQueue.filter(x=>now-x.added<LIVE_WINDOW).slice(-100);
- if(liveFirstDraw){liveFirstDraw=false;if(liveQueue.length)liveActive=liveQueue[liveQueue.length-1].key;showLiveSlide()}
- else if(!liveQueue.some(x=>x.key===liveActive))showLiveSlide();
+ const day=(S&&S.today)||T,all=S.s||[],today=all.filter(s=>s.d===day),ok=today.filter(s=>!s.v),last=all[all.length-1];
+ $('#liveCount').textContent=ok.length.toLocaleString('en-PH');
+ $('#liveRevenue').textContent=M(ok.reduce((a,s)=>a+(Number(s.tot)||0),0));
+ $('#liveLatest').textContent=last?(last.d===day?(last.t||last.d):(last.d+' '+(last.t||''))):'No sales yet';
+ const sel=$('#liveBy'),cur=sel.value,names=[...new Set(today.map(s=>s.by).filter(Boolean))].sort(),sig=names.join('|');
+ if(sel.dataset.sig!==sig){sel.innerHTML='<option value="">All cashiers</option>'+names.map(n=>'<option>'+esc(n)+'</option>').join('');sel.dataset.sig=sig;sel.value=names.includes(cur)?cur:''}
+ const st=$('#liveStatusF').value,by=sel.value;
+ const rows=today.slice().reverse().filter(s=>(!st||st==='all'||liveState(s)===st)&&(!by||s.by===by));
+ const fresh=new Set();
+ if(liveSeen===null)liveSeen=new Set(today.map(liveKey));
+ else today.forEach(s=>{const k=liveKey(s);if(!liveSeen.has(k)){liveSeen.add(k);fresh.add(k)}});
+ const shown=rows.slice(0,200);
+ $('#liveFeed').innerHTML=shown.length?shown.map(s=>liveRow(s,fresh.has(liveKey(s)))).join('')+(rows.length>shown.length?'<p class="mu live-more">Showing the newest 200 of '+rows.length+'. Use the Receipts tab for older sales.</p>':''):'<div class="card live-empty"><h3>'+(today.length?'No sales match these filters':'No sales yet today')+'</h3><p class="mu">'+(today.length?'Change the filters above to see more.':'New sales appear here the moment they are rung up.')+'</p></div>';
+ drawTally(today);
 }
 async function refreshLive(){
  if(liveBusy||!ME)return;liveBusy=true;
@@ -37,5 +41,6 @@ async function refreshLive(){
  catch(e){liveStatus('Connection issue',false)}finally{liveBusy=false}
 }
 $('#liveRefresh').onclick=refreshLive;
-if(liveTimer)clearInterval(liveTimer);
-liveTimer=setInterval(()=>{if(tab==='live')stepLive(1)},LIVE_SLIDE_MS);
+$('#liveFeed').onclick=e=>{const b=e.target.closest('[data-key]');if(!b)return;const k=b.dataset.key;if(liveOpen.has(k))liveOpen.delete(k);else liveOpen.add(k);drawLive()};
+['#liveStatusF','#liveBy'].forEach(id=>$(id).onchange=drawLive);
+$('#liveQ').oninput=()=>drawTally((S.s||[]).filter(s=>s.d===((S&&S.today)||T)));
