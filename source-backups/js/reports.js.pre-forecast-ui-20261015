@@ -1,0 +1,8 @@
+// reports.js: Reports tab (today totals, alerts, backup and restore)
+function drawRep(){const td=S.s.filter(s=>s.d===T&&!s.v),sum=k=>R(td.reduce((a,s)=>a+s[k],0));
+$('#st').innerHTML=`<div class="card"><span class="mu">Sales today</span><b>${td.length}</b></div><div class="card"><span class="mu">Total today</span><b>${M(sum('tot'))}</b></div>`;
+const L=(f,g)=>{const a=S.p.filter(f);return a.length?a.map(g).join(''):'<li class="mu">None</li>'};
+$('#al').innerHTML=`<div class="card"><h3>Expired</h3><ul>${L(p=>p.e&&p.e<T,p=>`<li>${esc(p.n)} (${p.e}), ${p.s} left</li>`)}</ul></div><div class="card"><h3>Expiring within 90 days</h3><ul>${L(p=>p.e&&p.e>=T&&p.e<=ds(90),p=>`<li>${esc(p.n)} (${p.e}), ${p.s} left</li>`)}</ul></div><div class="card"><h3>Low stock</h3><ul>${L(p=>p.s<=p.m,p=>`<li>${esc(p.n)}: ${p.s} left</li>`)}</ul></div>`;
+$('#rs').innerHTML=S.s.slice(-10).reverse().map(s=>`<tr><td>#${s.no}${s.v?' (void)':''}</td><td>${s.d} ${s.t}</td><td>${s.l.reduce((a,l)=>a+l.q,0)}</td><td>${M(s.tot)}</td></tr>`).join('')||'<tr><td colspan="4" class="mu">No sales yet.</td></tr>'}
+$('#bs').onclick=()=>{$('#bk').value=JSON.stringify({p:S.p,s:S.s,g:S.g});$('#bk').select();$('#bm').textContent='Copy this text and keep it safe.'};
+$('#br').onclick=async()=>{let d;try{d=JSON.parse($('#bk').value)}catch(e){}if(!d||!Array.isArray(d.p)||!Array.isArray(d.s)){$('#bm').textContent='That text is not a valid backup.';return}const r=await api('/api/restore',{password:$('#bpn').value,data:{p:d.p,s:d.s,g:d.g||[]}});if(r.error){$('#bm').textContent=r.error;return}cart=[];$('#bpn').value='';drawGrid();drawLines();drawProd();drawRep();$('#bm').textContent='Backup restored.'};

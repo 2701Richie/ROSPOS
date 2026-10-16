@@ -59,10 +59,12 @@ Then run `sudo systemctl enable --now pos`. View errors with `journalctl -u pos 
 ## Data and backups
 
 - All data is in `data/pos.db` (SQLite). The server needs write access to that folder.
-- Every hour the server writes today's copy to `backups/pos-YYYY-MM-DD.db` and keeps the last 30 days. To store them on a USB drive, start the server with `POS_BACKUP_DIR=/media/you/USB/pos-backups`. Add it as an `Environment=` line in the service file.
-- To restore: stop the server, copy a backup file over `data/pos.db`, and start it again.
-- Copy the USB drive somewhere else regularly. A backup on the same laptop does not protect you if the laptop dies.
-- To move your test data from the browser version: Reports, Show backup, copy the text. Paste it into Restore on this version.
+- The server refreshes `backups/pos-YYYY-MM-DD.db` hourly and keeps the latest 30 daily copies. Restore actions and imports also create timestamped safety snapshots.
+- In Reports, the owner can download a portable `rospos-backup-YYYY-MM-DD.json` file. Store a copy on a USB drive or another computer; the file contains product, sales and activity history.
+- To restore, select the JSON file in Reports, enter the owner password and confirm. ROSPOS validates the contents and creates a pre-restore database snapshot before replacing current product, sales and activity data. User accounts are not replaced.
+- To keep automatic database backups on a USB drive, start the server with `POS_BACKUP_DIR=/media/you/USB/pos-backups`. Add it as an `Environment=` line in the service file. Ensure the drive is mounted before ROSPOS starts.
+- Keep at least one backup somewhere other than the store laptop. A backup stored only on the same laptop does not protect you if the laptop dies.
+- Older browser-version text backups can still be restored from the “Legacy text backup” section in Reports.
 
 ## Settings (environment variables)
 

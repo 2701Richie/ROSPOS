@@ -54,9 +54,13 @@ def pub():
     return {"p": S["p"], "s": S["s"], "g": S["g"], "today": now()[0]}
 
 
-def log(n, k, a, z):
+def log(n, k, a, z, pid=None, why=""):
     d, t = now()
-    S["g"].append({"d": d, "t": t, "n": n, "k": k, "a": a, "z": z, "u": ACTOR["name"] if ACTOR else ""})
+    if pid is None:
+        match = next((p for p in S["p"] if p["n"] == n), None)
+        pid = match["id"] if match else None
+    S["g"].append({"d": d, "t": t, "n": n, "k": k, "a": a, "z": z,
+                   "u": ACTOR["name"] if ACTOR else "", "i": pid, "w": why})
 
 
 def prod(i):
@@ -191,9 +195,13 @@ def r_sale(b, ip):
     cash = tot if cash is None else cash
     if not isinstance(cash, (int, float)) or cash < tot:
         raise Err(400, "Cash received is less than the total.")
+    sale_no = len(S["s"]) + 1
     for l in lines:
-        prod(l["id"])["s"] -= l["q"]
-    sale = {"no": len(S["s"]) + 1, "d": today, "t": t, "l": lines, "tot": tot, "cash": cash,
+        p = prod(l["id"])
+        old_stock = p["s"]
+        p["s"] -= l["q"]
+        log(p["n"], "Sale #%d" % sale_no, old_stock, p["s"], p["id"], "Checkout")
+    sale = {"no": sale_no, "d": today, "t": t, "l": lines, "tot": tot, "cash": cash,
             "by": ACTOR["name"], "uid": ACTOR["id"]}
     S["s"].append(sale)
     save()
@@ -294,7 +302,7 @@ def r_product(b, ip):
             i += 1
         S["p"].append({"id": i, "n": n, "p": R(p), "s": s, "e": e, "m": m})
         if s:
-            log(n, "New product +%d" % s, 0, s)
+            log(n, "New product +%d" % s, 0, s, i, "Initial stock")
     save()
     return {}
 
@@ -304,8 +312,10 @@ def r_delete(b, ip):
     x = prod(b.get("id"))
     if not x:
         raise Err(404, "Product not found.")
-    if x["s"]:
-        log(x["n"], "Deleted", x["s"], 0)
+    why = str(b.get("why", "")).strip()
+    if not why:
+        raise Err(400, "Enter a reason for deleting this product.")
+    log(x["n"], "Deleted", x["s"], 0, x["id"], why)
     S["p"].remove(x)
     save()
     return {}
@@ -322,8 +332,9 @@ def r_stock(b, ip):
     z = o + int(v) if mode == "add" else int(v)
     if z == o:
         raise Err(400, "The count did not change.")
+    why = str(b.get("why", "")).strip() or ("Stock received" if mode == "add" else "Stock count correction")
     p["s"] = z
-    log(p["n"], "Received +%s" % v if mode == "add" else "Count set", o, z)
+    log(p["n"], "Received +%s" % v if mode == "add" else "Count set", o, z, p["id"], why)
     save()
     return {"msg": "%s: %d \u2192 %d" % (p["n"], o, z)}
 
@@ -335,12 +346,12 @@ def find_sale(no):
     return s
 
 
-def put_back(l, d, why):
+def put_back(l, d, action, reason=""):
     p = find_prod(l)
     if p:
         o = p["s"]
         p["s"] = max(0, o + d)
-        log(p["n"], why, o, p["s"])
+        log(p["n"], action, o, p["s"], p["id"], reason)
 
 
 def r_void(b, ip):
@@ -351,7 +362,7 @@ def r_void(b, ip):
     if not why:
         raise Err(400, "Enter a reason.")
     for l in s["l"]:
-        put_back(l, l["q"], "Void sale #%d" % s["no"])
+        put_back(l, l["q"], "Void sale #%d" % s["no"], why)
     d, t = now()
     s["v"] = {"d": d, "t": t, "w": why, "u": ACTOR["name"]}
     save()
@@ -382,7 +393,7 @@ def r_change(b, ip):
     old, d, t = s["tot"], *now()
     for n, l in zip(q, s["l"]):
         if n != l["q"]:
-            put_back(l, l["q"] - n, "Changed sale #%d" % s["no"])
+            put_back(l, l["q"] - n, "Changed sale #%d" % s["no"], why)
     s["l"] = [dict(l, q=n) for n, l in zip(q, s["l"]) if n > 0]
     s.update(tot=tot, cash=cash)
     if s.get("dc"):
@@ -395,12 +406,28 @@ def r_change(b, ip):
 def r_restore(b, ip):
     global S
     reauth(ip, b, "owner")
-    d = b.get("data") or {}
-    if not all(isinstance(d.get(k), list) for k in ("p", "s")):
-        raise Err(400, "That is not a valid backup.")
-    S = {"p": d["p"], "s": d["s"], "g": d.get("g") or []}
+    d = b.get("data") or b
+    if not isinstance(d, dict) or not all(isinstance(d.get(k), list) for k in ("p", "s")):
+        raise Err(400, "That is not a valid ROSPOS backup.")
+    if not isinstance(d.get("g", []), list) or len(d["p"]) > 100000 or len(d["s"]) > 1000000 or len(d.get("g", [])) > 2000000:
+        raise Err(400, "This backup has invalid or excessive data.")
+    if any(not isinstance(x, dict) or not all(k in x for k in ("id", "n", "p", "s"))
+           or not isinstance(x.get("n"), str) or not isinstance(x.get("p"), (int, float))
+           or not isinstance(x.get("s"), int) or x["s"] < 0 for x in d["p"]):
+        raise Err(400, "The backup contains an invalid product record.")
+    if any(not isinstance(x, dict) or not all(k in x for k in ("no", "d", "l", "tot"))
+           or not isinstance(x.get("l"), list) or not isinstance(x.get("tot"), (int, float))
+           or any(not isinstance(line, dict) or not all(k in line for k in ("id", "n", "q", "p"))
+                  or not isinstance(line.get("q"), int) or line["q"] < 0
+                  or not isinstance(line.get("p"), (int, float)) for line in x.get("l", [])) for x in d["s"]):
+        raise Err(400, "The backup contains an invalid sale record.")
+    if any(not isinstance(x, dict) for x in d.get("g", [])):
+        raise Err(400, "The backup contains an invalid activity record.")
+    # Keep an immediate database-level recovery point before replacing live data.
+    snapshot("pre-restore")
+    S = {"p": d["p"], "s": d["s"], "g": d.get("g", [])}
     save()
-    return {}
+    return {"msg": "Backup restored successfully."}
 
 
 def snapshot(tag):
@@ -437,6 +464,9 @@ def num(v):
 def r_import(b, ip):
     allow("manager")
     mode, rows = b.get("mode"), b.get("rows")
+    why = str(b.get("why", "")).strip()
+    if b.get("apply") and not why:
+        raise Err(400, "Enter a reason for this import.")
     if mode not in ("products", "add", "set") or not isinstance(rows, list):
         raise Err(400, "Bad import request.")
     if len(rows) > 5000:
@@ -516,10 +546,10 @@ def r_import(b, ip):
                 s = int(qty or 0)
                 S["p"].append({"id": new_id(), "n": name, "p": R(price), "s": s, "e": "", "m": int(reorder or 0)})
                 if s:
-                    log(name, "New product +%d" % s, 0, s)
+                    log(name, "New product +%d" % s, 0, s, S["p"][-1]["id"], why)
             else:
                 if price is not None and R(price) != p["p"]:
-                    log(p["n"], "Price changed", p["p"], R(price))
+                    log(p["n"], "Price changed", p["p"], R(price), p["id"], why)
                     p["p"] = R(price)
                 if reorder is not None:
                     p["m"] = int(reorder)
@@ -528,7 +558,7 @@ def r_import(b, ip):
             z = o + int(qty) if mode == "add" else int(qty)
             if z != o:
                 p["s"] = z
-                log(p["n"], "Import: received +%d" % int(qty) if mode == "add" else "Import: count set", o, z)
+                log(p["n"], "Import: received +%d" % int(qty) if mode == "add" else "Import: count set", o, z, p["id"], why)
     save()
     plan["applied"] = True
     return {"plan": plan}
@@ -549,13 +579,15 @@ class H(BaseHTTPRequestHandler):
         return "pos_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d%s" % (
             "" if clear else token, 0 if clear else int(SESSION_HOURS * 3600), secure)
 
-    def send(self, code, obj=None, body=None, ctype="application/json", cookie=None):
+    def send(self, code, obj=None, body=None, ctype="application/json", cookie=None, disposition=None):
         data = body if body is not None else json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if disposition:
+            self.send_header("Content-Disposition", disposition)
         if cookie:
             self.send_header("Set-Cookie", cookie)
         self.end_headers()
@@ -563,11 +595,25 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         page = self.path.split("?")[0]
-        if page in ("/", "/index.html", "/style.css") or re.fullmatch(r"/js/[a-z]+\.js", page):
+        if page == "/api/backup":
+            with LOCK:
+                u, _ = session_user(self)
+                if not u:
+                    return self.send(401, {"error": "Please sign in."})
+                if u.get("role") != "owner":
+                    return self.send(403, {"error": "Only the owner can download a full backup."})
+                payload = {"format": "ROSPOS-backup", "version": 1,
+                           "createdAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+                           "data": {"p": S["p"], "s": S["s"], "g": S["g"]}}
+                filename = "rospos-backup-%s.json" % datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                body = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+                return self.send(200, body=body, ctype="application/json; charset=utf-8",
+                                 disposition='attachment; filename="%s"' % filename)
+        if page in ("/", "/index.html", "/style.css", "/logo.svg") or re.fullmatch(r"/js/[a-z]+\.js", page):
             name = "index.html" if page == "/" else page.lstrip("/")
             f = os.path.join(HERE, name)
             if os.path.isfile(f):
-                ctype = {"html": "text/html", "css": "text/css", "js": "text/javascript"}[name.rsplit(".", 1)[1]]
+                ctype = {"html": "text/html", "css": "text/css", "js": "text/javascript", "svg": "image/svg+xml"}[name.rsplit(".", 1)[1]]
                 with open(f, "rb") as fh:
                     return self.send(200, body=fh.read(), ctype=ctype + "; charset=utf-8")
         if page in ("/api/me", "/api/state"):

@@ -10,9 +10,9 @@ async function api(path,body){try{const r=await fetch(path,{method:body?'POST':'
 async function load(){const r=await api('/api/state');if(r.error)say(r.error);return r}
 function say(t){$('#msg').textContent=t}
 function tags(p){let t='';if(p.e&&p.e<T)t+='<span class="tag b">Expired</span> ';else if(p.e&&p.e<=ds(90))t+='<span class="tag w">Exp. '+p.e+'</span> ';if(p.s<=p.m)t+='<span class="tag b">Low stock: '+p.s+'</span>';return t}
-function show(t){if(!can(PERM[t]||'staff'))t='sell';tab=t;['sell','rcp','prod','rdr','rep','acc'].forEach(k=>{$('#v-'+k).hidden=k!==t;document.querySelector('nav [data-t="'+k+'"]').classList.toggle('on',k===t)});if(t==='rep')drawRep();if(t==='prod')drawProd();if(t==='rcp')drawRcp();if(t==='rdr')drawRdr();if(t==='acc')drawAcc()}
+function show(t){if(!can(PERM[t]||'staff'))t='sell';tab=t;['sell','live','rcp','prod','rdr','rep','acc'].forEach(k=>{$('#v-'+k).hidden=k!==t;document.querySelector('nav [data-t="'+k+'"]').classList.toggle('on',k===t)});if(t==='rep')drawRep();if(t==='prod')drawProd();if(t==='rcp')drawRcp();if(t==='rdr')drawRdr();if(t==='acc')drawAcc();if(t==='live')refreshLive()}
 document.querySelector('nav').onclick=e=>{const b=e.target.closest('button');if(b)show(b.dataset.t)};
-const LV={staff:1,manager:2,owner:3},PERM={sell:'staff',rcp:'staff',rdr:'staff',prod:'manager',rep:'manager',acc:'owner'};
+const LV={staff:1,manager:2,owner:3},PERM={sell:'staff',live:'staff',rcp:'staff',rdr:'staff',prod:'manager',rep:'manager',acc:'owner'};
 let setupMode=false;
 function can(r){return !!ME&&LV[ME.role]>=LV[r]}
 function fail(r,el){el.textContent=r.error}
