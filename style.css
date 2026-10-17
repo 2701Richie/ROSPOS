@@ -35,6 +35,9 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;bord
 label{display:block;font-size:13px;color:var(--mu)}label input{margin-top:4px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}.stats b{font-size:24px;display:block}
 .stats ul{margin:8px 0 0;padding-left:18px;font-size:14px}
+#al .card{display:flex;flex-direction:column;min-height:0;max-height:min(280px,42vh)}
+#al .card h3{flex:0 0 auto}
+#al .card ul{flex:1 1 auto;min-height:0;margin-top:8px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .acts{display:flex;gap:8px;margin:12px 0}
 .err{min-height:22px;font-size:14px;color:var(--bt);margin-top:8px}
 h2,h3{margin:0 0 8px}
