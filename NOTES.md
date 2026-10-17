@@ -8,7 +8,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 |---|---|
 | `install-lubuntu.sh` | One-time setup for the store laptop (Lubuntu/Ubuntu/Debian): boot service, `pos.local` name, port 80, firewall, desktop icon. `--uninstall` undoes it |
 | `install-arch.sh` | Same setup for Arch, used for testing |
-| `server.py` | All data and rules. SQLite in `data/pos.db`, hourly backups, PIN checks, one function per operation (`r_sale`, `r_void`, ...) |
+| `server.py` | All data and rules. SQLite in `data/pos.db`, hourly backups, password re-checks, one function per operation (`r_sale`, `r_void`, ...) |
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
 | `js/core.js` | Shared state `S`, helpers (`R`, `M`, `esc`, `tags`), `api()`, `load()`, `show(tab)`, sign-in screen and role checks (`can()`) |
@@ -19,7 +19,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `js/import.js` | CSV import (preview, apply), export products, download template. Parsing happens in the browser, rules in `r_import` |
 | `js/reports.js` | Reports tab: today's totals, alerts, recent sales, backup show/restore |
 | `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Client only, no server change |
-| `js/receipts.js` | Receipts tab: sale list, view, PIN-protected void and change popups |
+| `js/receipts.js` | Receipts tab: sale list, view, password-protected void and change popups |
 | `js/livesales.js` | Live Sales tab: today's sales as a newest-first feed (tap a row for items; filters by status and cashier; new sales highlight briefly) plus a "sold today by product" tally with search. Refreshed every 5 seconds from `/api/state`. Client only |
 | `js/main.js` | Startup and the 15-second refresh on the Sell tab |
 

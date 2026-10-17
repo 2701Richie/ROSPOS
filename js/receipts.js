@@ -1,4 +1,4 @@
-// receipts.js: Receipts tab (list, view, PIN-protected void and change)
+// receipts.js: Receipts tab (list, view, password-protected void and change)
 function openPm(h){$('#pb').innerHTML=h;$('#pm').hidden=false;$('#vno').onclick=()=>{$('#pm').hidden=true}}
 const AUTH='<label>Reason<input id="vr"></label><label style="margin-top:8px">Your password<input id="vp" type="password" autocomplete="current-password"></label>';
 function drawRcp(){const q=$('#rq').value.trim().toLowerCase().replace('#',''),l=[...S.s].reverse().filter(s=>!q||String(s.no)===q||s.d.includes(q)).slice(0,100);
