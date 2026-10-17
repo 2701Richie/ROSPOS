@@ -83,9 +83,34 @@ def find_prod(l):
     return prod(l.get("id")) or next((p for p in S["p"] if p["n"] == l["n"]), None)
 
 
+MAX_NUM = 100_000_000  # largest price, cash amount, quantity or stock level the server accepts
+
+
+def good_num(v, hi=MAX_NUM, whole=False):
+    """True only for a real number from 0 to hi: not a bool, not NaN or Infinity (those fail the range test).
+    whole=True also demands an int. Use this for every number a client sends."""
+    if isinstance(v, bool) or not isinstance(v, int if whole else (int, float)):
+        return False
+    return 0 <= v <= hi and math.isfinite(v)
+
+
+def _no_constant(name):  # json.loads hook: refuse NaN, Infinity and -Infinity
+    raise ValueError("Not a valid number: " + name)
+
+
+def _finite_float(s):  # json.loads hook: refuse numbers that overflow to Infinity, such as 1e999
+    x = float(s)
+    if not math.isfinite(x):
+        raise ValueError("Number out of range")
+    return x
+
+
 def nint(v):
+    """Whole number from a form field. Blank or unreadable becomes 0; NaN, Infinity and booleans are refused."""
+    if isinstance(v, bool) or (isinstance(v, float) and not math.isfinite(v)):
+        raise Err(400, "Stock and reorder level must be whole numbers.")
     try:
-        return max(0, int(v))
+        return min(MAX_NUM, max(0, int(v)))
     except (TypeError, ValueError):
         return 0
 
@@ -187,7 +212,7 @@ def r_sale(b, ip):
     agg = {}
     for l in b.get("lines") or []:
         q = l.get("q")
-        if not isinstance(q, int) or q < 1 or not prod(l.get("id")):
+        if not good_num(q, MAX_NUM, whole=True) or q < 1 or not prod(l.get("id")):
             raise Err(400, "Invalid item in the sale.")
         agg[l["id"]] = agg.get(l["id"], 0) + q
     if not agg:
@@ -205,7 +230,7 @@ def r_sale(b, ip):
     tot = R(tot)
     cash = b.get("cash")
     cash = tot if cash is None else cash
-    if not isinstance(cash, (int, float)) or cash < tot:
+    if not good_num(cash) or cash < tot:
         raise Err(400, "Cash received is less than the total.")
     sale_no = len(S["s"]) + 1
     for l in lines:
@@ -298,7 +323,7 @@ def r_mypw(b, ip):
 def r_product(b, ip):
     allow("manager")
     n, p = str(b.get("n", "")).strip(), b.get("p")
-    if not n or not isinstance(p, (int, float)) or p < 0:
+    if not n or not good_num(p):
         raise Err(400, "Enter a product name and a valid price.")
     e, m, i = str(b.get("e") or ""), nint(b.get("m")), b.get("id")
     if i:
@@ -338,10 +363,12 @@ def r_stock(b, ip):
     p, v, mode = prod(b.get("id")), str(b.get("v", "")).strip(), b.get("mode")
     if not p:
         raise Err(404, "Product not found.")
-    if not v.isdigit() or (mode == "add" and int(v) < 1):
+    if not (v.isascii() and v.isdigit()) or int(v) > MAX_NUM or (mode == "add" and int(v) < 1):
         raise Err(400, "Type a whole number first" + (" (1 or more)." if mode == "add" else "."))
     o = p["s"]
     z = o + int(v) if mode == "add" else int(v)
+    if z > MAX_NUM:
+        raise Err(400, "That count is too large.")
     if z == o:
         raise Err(400, "The count did not change.")
     why = str(b.get("why", "")).strip() or ("Stock received" if mode == "add" else "Stock count correction")
@@ -352,7 +379,7 @@ def r_stock(b, ip):
 
 
 def find_sale(no):
-    s = next((s for s in S["s"] if s["no"] == no), None)
+    s = None if isinstance(no, bool) else next((s for s in S["s"] if s["no"] == no), None)
     if not s:
         raise Err(404, "Sale not found.")
     return s
@@ -386,7 +413,7 @@ def r_change(b, ip):
     s, why, q = find_sale(b.get("no")), str(b.get("why", "")).strip(), b.get("q")
     if s.get("v"):
         raise Err(409, "This sale is void.")
-    if not isinstance(q, list) or len(q) != len(s["l"]) or any(not isinstance(x, int) or x < 0 for x in q):
+    if not isinstance(q, list) or len(q) != len(s["l"]) or any(not good_num(x, MAX_NUM, whole=True) for x in q):
         raise Err(400, "Quantities must be whole numbers.")
     if not any(q):
         raise Err(400, "Use Void to cancel the whole sale.")
@@ -395,7 +422,7 @@ def r_change(b, ip):
     sub = R(sum(n * l["p"] for n, l in zip(q, s["l"])))
     dc = R(sub * 0.2) if s.get("dc") else 0  # sales made with the old discount keep it
     tot, cash = R(sub - dc), b.get("cash")
-    if not isinstance(cash, (int, float)) or cash < tot:
+    if not good_num(cash) or cash < tot:
         raise Err(400, "Cash received must cover the new total (\u20b1%.2f)." % tot)
     for n, l in zip(q, s["l"]):
         if n > l["q"]:
@@ -424,14 +451,14 @@ def r_restore(b, ip):
     if not isinstance(d.get("g", []), list) or len(d["p"]) > 100000 or len(d["s"]) > 1000000 or len(d.get("g", [])) > 2000000:
         raise Err(400, "This backup has invalid or excessive data.")
     if any(not isinstance(x, dict) or not all(k in x for k in ("id", "n", "p", "s"))
-           or not isinstance(x.get("n"), str) or not isinstance(x.get("p"), (int, float))
-           or not isinstance(x.get("s"), int) or x["s"] < 0 for x in d["p"]):
+           or not isinstance(x.get("n"), str) or not good_num(x.get("p"))
+           or not good_num(x.get("s"), MAX_NUM, whole=True) for x in d["p"]):
         raise Err(400, "The backup contains an invalid product record.")
     if any(not isinstance(x, dict) or not all(k in x for k in ("no", "d", "l", "tot"))
-           or not isinstance(x.get("l"), list) or not isinstance(x.get("tot"), (int, float))
+           or not isinstance(x.get("l"), list) or not good_num(x.get("tot"))
            or any(not isinstance(line, dict) or not all(k in line for k in ("id", "n", "q", "p"))
-                  or not isinstance(line.get("q"), int) or line["q"] < 0
-                  or not isinstance(line.get("p"), (int, float)) for line in x.get("l", [])) for x in d["s"]):
+                  or not good_num(line.get("q"), MAX_NUM, whole=True)
+                  or not good_num(line.get("p")) for line in x.get("l", [])) for x in d["s"]):
         raise Err(400, "The backup contains an invalid sale record.")
     if any(not isinstance(x, dict) for x in d.get("g", [])):
         raise Err(400, "The backup contains an invalid activity record.")
@@ -468,7 +495,7 @@ def num(v):
     if not s:
         return None
     x = float(s)
-    if x < 0 or x != x or x == float("inf"):
+    if not math.isfinite(x) or x < 0 or x > MAX_NUM:
         raise ValueError
     return x
 
@@ -589,11 +616,14 @@ def r_settings(b, ip):
     store = " ".join(str(b.get("store", "")).split())
     if len(store) > 60:
         raise Err(400, "Store name must be 60 characters or fewer.")
+    hrs_in, days_in = b.get("session_hours"), b.get("backup_days")
+    if isinstance(hrs_in, bool) or isinstance(days_in, bool):
+        raise Err(400, "Enter whole numbers for backup days and a number for the sign-in hours.")
     try:
-        hrs, days = float(b.get("session_hours")), int(str(b.get("backup_days")).strip())
+        hrs, days = float(hrs_in), int(str(days_in).strip())
     except (TypeError, ValueError):
         raise Err(400, "Enter whole numbers for backup days and a number for the sign-in hours.")
-    if not 1 <= hrs <= 72:
+    if not math.isfinite(hrs) or not 1 <= hrs <= 72:
         raise Err(400, "Stay signed in must be between 1 and 72 hours.")
     if not 7 <= days <= 365:
         raise Err(400, "Keep between 7 and 365 days of backups.")
@@ -677,7 +707,7 @@ class H(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             if n > 20_000_000:
                 raise Err(413, "Request too large.")
-            b = json.loads(self.rfile.read(n) or b"{}")
+            b = json.loads(self.rfile.read(n) or b"{}", parse_constant=_no_constant, parse_float=_finite_float)
             ip = self.client_address[0]
             with LOCK:
                 try:
