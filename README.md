@@ -1,6 +1,17 @@
 # ROSPOS: Point of Sale System
 
-Two files run it: `server.py` (holds the data) and `index.html` (the screens). Keep them in the same folder. Needs Python 3.8 or newer. Nothing else to install.
+The server is `server.py` (it holds the data); the screens are `index.html`, `style.css` and the `js` folder. Keep them together in one folder. Needs Python 3.8 or newer. Nothing else to install.
+
+## Getting it onto a new laptop
+
+```
+sudo apt install -y git
+git clone https://github.com/2701Richie/ROSPOS.git
+cd ROSPOS
+sudo bash install-lubuntu.sh
+```
+
+Your sales data and accounts are **not** stored on GitHub, so a new laptop starts empty. Open `http://pos.local`, enter the setup code (shown with `journalctl -u pos -n 20`) and create the owner account. To bring old data over, download a backup from Reports on the old laptop and restore it here (owner only).
 
 ## Easy setup (Lubuntu store laptop, recommended)
 
