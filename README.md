@@ -5,11 +5,14 @@ The server is `server.py` (it holds the data); the screens are `index.html`, `st
 ## Getting it onto a new laptop
 
 ```
-sudo apt install -y git
-git clone https://github.com/2701Richie/ROSPOS.git
+sudo apt install -y git gh
+gh auth login
+gh repo clone 2701Richie/ROSPOS
 cd ROSPOS
 sudo bash install-lubuntu.sh
 ```
+
+The repository is private, so GitHub asks you to sign in first (`gh auth login`: choose GitHub.com, HTTPS, and sign in through the browser). If `gh` is not available on that laptop, create a personal access token on GitHub (Settings, Developer settings, Personal access tokens, read access to this repository) and use `git clone https://github.com/2701Richie/ROSPOS.git`, entering the token as the password.
 
 Your sales data and accounts are **not** stored on GitHub, so a new laptop starts empty. Open `http://pos.local`, enter the setup code (shown with `journalctl -u pos -n 20`) and create the owner account. To bring old data over, download a backup from Reports on the old laptop and restore it here (owner only).
 
