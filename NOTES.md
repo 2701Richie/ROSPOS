@@ -15,7 +15,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`), checkout (`#pay`), `receipt()` popup, `clampCart` |
 | `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, stock log with who made each change |
 | `js/accounts.js` | Accounts tab (owner): add accounts, roles, reset password, disable |
-| `js/settings.js` | Settings tab (owner): store name, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt |
+| `js/settings.js` | Settings tab (owner): store name, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt, and the theme button in the header (every role, this device only: Automatic, Light, Dark; saved in the browser as `pos-theme`, applied early by a script in `index.html`) |
 | `js/import.js` | CSV import (preview, apply), export products, download template. Parsing happens in the browser, rules in `r_import` |
 | `js/reports.js` | Reports tab: today's totals, alerts, recent sales, backup show/restore |
 | `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Client only, no server change |
