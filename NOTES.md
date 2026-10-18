@@ -2,6 +2,36 @@
 
 Internal stock and sales counting tool. Python server on the store laptop, screens in the browser. For setup see README.md.
 
+## Start here (agents: read only this section, then just the files your task needs)
+
+**Before touching anything:** `git status -sb` and `git log --oneline -5` (other agents edit this repo too; never reset, stash or discard edits you did not make). Repo-local git identity stays as configured. No personal data in code or notes. Commit small, push only when the owner says.
+
+**Safety:** never touch `data/` or `backups/` (real database), never start, stop or restart the POS server without asking. Tests use temp folders and a temp server on port 8998.
+
+**Which file for which task** (details in the Files table below):
+
+| Task | Read |
+|---|---|
+| Rule, data or endpoint change | `server.py`: find the `r_<operation>` function with `grep -n "^def r_" server.py`, read only that slice |
+| Screen or behaviour of one tab | `js/<tab>.js` (sell, products, receipts, reorder, reports, livesales, import, accounts, settings) |
+| Shared state, `api()`, sign-in, roles | `js/core.js` |
+| Layout, popups, tab order | `index.html` (structure only) |
+| Look, dark mode, phones | `style.css`: search `grep -n "^/\*" style.css` for the section, phone rules are near the end |
+| Install or setup | `install-lubuntu.sh`, `install-arch.sh`, `README.md` |
+| Decided rules, data shapes | sections below: Data shapes, Endpoints, Rules already decided |
+
+**Run the tests (one command, prints one line, then only failures):**
+- `python3 tests/run.py` tests the working tree including uncommitted edits.
+- `python3 tests/run.py --clone` clones GitHub and tests that (run it after every push).
+- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/theme_test.js` (each takes an optional source folder).
+- Add a test for every new rule: put `ok   ...` / `FAIL ...` lines in a new `tests/*_test.py` and add its name to `run.py`.
+
+**Screenshots (only for visual work):** the harness lives outside the repo, in `pos-tests/demo` next to the project folder. `bash pos-tests/demo/shoot.sh` copies the front-end, injects fake data (`demo.js`), serves it on port 8077 and saves PNGs in `/tmp/shots` with headless chromium. URL knobs: `?tab=sell|live|rep|set|receipt&taps=0|1|2` (taps = theme button presses). Look at one image, not all.
+
+**Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/run.py` once at the end, not after every edit.
+
+**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Known bug, fix awaiting approval: on the first start after updating an older database `sale_seq` is not set, so sale numbers restart at 1 after old sales are archived (test A1 fails until fixed). Queued, not started: in-app updater (owner only, safety backup first); see "Not built yet" below.
+
 ## Files
 
 | File | What it holds |
