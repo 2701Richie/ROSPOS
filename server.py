@@ -2,12 +2,14 @@
 """ROSPOS server. Python standard library only, nothing to install.
 Run:  python3 server.py   then open http://<laptop-ip>:8000 on any tablet or PC."""
 import getpass, hashlib, hmac, json, math, os, re, secrets, sqlite3, sys, threading, time, traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB", os.path.join(HERE, "data", "pos.db"))
 BACKUP_DIR = os.environ.get("POS_BACKUP_DIR", os.path.join(HERE, "backups"))
+ARCHIVE_DIR = os.environ.get("POS_ARCHIVE_DIR", os.path.join(HERE, "archives"))
+HOT_DAYS = max(1, int(os.environ.get("POS_HOT_DAYS", "7")))  # sales/audit older than this leave live state
 PORT = int(os.environ.get("POS_PORT", "8000"))
 LOCK = threading.RLock()
 
@@ -48,6 +50,77 @@ def R(n):
 def now():
     d = datetime.now()
     return d.strftime("%Y-%m-%d"), d.strftime("%I:%M %p")
+
+
+def day_shift(day, n):
+    return (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def valid_day(d):
+    return isinstance(d, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
+
+
+def next_sale_no():
+    """Monotonic sale numbers that survive archiving (never reuse a number after old sales leave live state)."""
+    live_max = max((s.get("no") or 0 for s in S["s"]), default=0)
+    n = max(get("sale_seq") or 0, live_max) + 1
+    put("sale_seq", n)
+    return n
+
+
+def _merge_day_archive(day, sales, logs):
+    """Write or merge one day's sales/audit into archives/sales-YYYY-MM-DD.json (readable JSON)."""
+    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    path = os.path.join(ARCHIVE_DIR, "sales-%s.json" % day)
+    data = {"format": "ROSPOS-day-archive", "version": 1, "date": day, "s": [], "g": []}
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                prev = json.load(fh)
+            if isinstance(prev, dict):
+                data["s"] = list(prev.get("s") or [])
+                data["g"] = list(prev.get("g") or [])
+        except (OSError, ValueError, TypeError):
+            pass
+    by_no = {s["no"]: s for s in data["s"] if isinstance(s, dict) and "no" in s}
+    for s in sales:
+        by_no[s["no"]] = s
+    data["s"] = sorted(by_no.values(), key=lambda x: x["no"])
+    seen = {(g.get("d"), g.get("t"), g.get("n"), g.get("k"), g.get("a"), g.get("z"), g.get("u"), g.get("i"), g.get("w"))
+            for g in data["g"] if isinstance(g, dict)}
+    for g in logs:
+        key = (g.get("d"), g.get("t"), g.get("n"), g.get("k"), g.get("a"), g.get("z"), g.get("u"), g.get("i"), g.get("w"))
+        if key not in seen:
+            data["g"].append(g)
+            seen.add(key)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def archive_old():
+    """Move sales and audit rows older than HOT_DAYS into one JSON file per day. Call under LOCK."""
+    today = now()[0]
+    keep_from = day_shift(today, -HOT_DAYS)  # keep keep_from..today; archive strictly older
+    old_sales = [s for s in S["s"] if valid_day(s.get("d")) and s["d"] < keep_from]
+    old_logs = [g for g in S["g"] if valid_day(g.get("d")) and g["d"] < keep_from]
+    if not old_sales and not old_logs:
+        return 0
+    by_day_s, by_day_g = {}, {}
+    for s in old_sales:
+        by_day_s.setdefault(s["d"], []).append(s)
+    for g in old_logs:
+        by_day_g.setdefault(g["d"], []).append(g)
+    for day in sorted(set(by_day_s) | set(by_day_g)):
+        _merge_day_archive(day, by_day_s.get(day, []), by_day_g.get(day, []))
+    keep_s = {id(s) for s in old_sales}
+    keep_g = {id(g) for g in old_logs}
+    S["s"] = [s for s in S["s"] if id(s) not in keep_s]
+    S["g"] = [g for g in S["g"] if id(g) not in keep_g]
+    save()
+    return len(old_sales)
 
 
 SETTING_DEFAULTS = {"store": "", "session_hours": None, "backup_days": 30}
@@ -232,7 +305,7 @@ def r_sale(b, ip):
     cash = tot if cash is None else cash
     if not good_num(cash) or cash < tot:
         raise Err(400, "Cash received is less than the total.")
-    sale_no = len(S["s"]) + 1
+    sale_no = next_sale_no()
     for l in lines:
         p = prod(l["id"])
         old_stock = p["s"]
@@ -465,6 +538,9 @@ def r_restore(b, ip):
     # Keep an immediate database-level recovery point before replacing live data.
     snapshot("pre-restore")
     S = {"p": d["p"], "s": d["s"], "g": d.get("g", [])}
+    live_max = max((s.get("no") or 0 for s in S["s"]), default=0)
+    put("sale_seq", max(get("sale_seq") or 0, live_max))
+    archive_old()
     save()
     return {"msg": "Backup restored successfully."}
 
@@ -745,9 +821,13 @@ class H(BaseHTTPRequestHandler):
 
 
 def backup_loop():
-    """Rewrites today's backup file every hour; keeps the last N days (Settings tab, 30 by default)."""
+    """Archives old sales, rewrites today's backup hourly, keeps the last N daily DB copies (Settings)."""
     while True:
         try:
+            with LOCK:
+                n = archive_old()
+                if n:
+                    print("Archived %d old sale(s) to %s" % (n, ARCHIVE_DIR), flush=True)
             os.makedirs(BACKUP_DIR, exist_ok=True)
             f = os.path.join(BACKUP_DIR, "pos-%s.db" % now()[0])
             with LOCK:
@@ -780,6 +860,10 @@ if __name__ == "__main__":
         save_users()
         print("Password changed. Restart the server now: sudo systemctl restart pos")
         sys.exit(0)
+    with LOCK:
+        n = archive_old()
+        if n:
+            print("Archived %d old sale(s) to %s" % (n, ARCHIVE_DIR), flush=True)
     threading.Thread(target=backup_loop, daemon=True).start()
     if not U:
         print("FIRST-TIME SETUP CODE: %s  (open the POS in a browser and create the owner account)" % SETUP_CODE, flush=True)
