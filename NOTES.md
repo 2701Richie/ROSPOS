@@ -8,7 +8,8 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 |---|---|
 | `install-lubuntu.sh` | One-time setup for the store laptop (Lubuntu/Ubuntu/Debian): boot service, `pos.local` name, port 80, firewall, desktop icon. `--uninstall` undoes it |
 | `install-arch.sh` | Same setup for Arch, used for testing |
-| `server.py` | All data and rules. SQLite in `data/pos.db`, hourly backups, password re-checks, one function per operation (`r_sale`, `r_void`, ...) |
+| `server.py` | All data and rules. SQLite in `data/pos.db`, hourly backups, daily sales archives, password re-checks, one function per operation (`r_sale`, `r_void`, ...) |
+| `archives/` | One readable JSON file per day (`sales-YYYY-MM-DD.json`) for sales and audit rows older than 7 days. Not in git. Local only, like `data/` |
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
 | `js/core.js` | Shared state `S`, helpers (`R`, `M`, `esc`, `tags`), `api()`, `load()`, `show(tab)`, sign-in screen and role checks (`can()`) |
@@ -59,6 +60,7 @@ Errors come back as `{error}`.
 - No discounts and no VAT: the price is the price. Old sales from earlier versions may still show a discount.
 - Expired products can't be sold. Selling past stock is refused. Expiry date is optional per product; blank means never flagged or blocked.
 - Sales are never deleted. Void returns stock and keeps the sale marked void. Change edits quantities and cash.
+- Live state keeps about 7 days of sales and audit rows (`POS_HOT_DAYS`, default 7). Older rows are moved automatically (on startup and hourly) into `archives/sales-YYYY-MM-DD.json` (format `ROSPOS-day-archive`). Receipts, voids, changes, Live Sales and Reports only see the live week; open the archive file to read an older day. Sale numbers keep increasing via `sale_seq` so archiving never reuses a number.
 - Reorder tab: "now" is stock at or below the reorder level, "getting low" is up to 25% above it (margin kept in the browser). Suggested order quantity brings stock to double the reorder level. Products with no reorder level are ignored. Order list layout: #, Product Name, Quantity, Price (blank), A to Z.
 - Counting is manual: staff report counts to the owner or manager, who check the system.
 - 90 days is the "expiring soon" window.

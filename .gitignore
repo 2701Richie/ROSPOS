@@ -1,5 +1,6 @@
 data/
 backups/
+archives/
 __pycache__/
 *.db-shm
 *.db-wal
