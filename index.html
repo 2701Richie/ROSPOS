@@ -12,7 +12,7 @@
 <script>try{var t=localStorage.getItem('pos-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
-<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="tb" type="button"></button><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
+<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="fsb" type="button">Full screen</button><button id="tb" type="button"></button><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
 <main>
 <section id="v-sell" class="two" hidden>
 <div><input id="q" type="search" placeholder="Search products" autocomplete="off" aria-label="Search products"><div id="grid"></div></div>
@@ -115,6 +115,7 @@
 <script src="/js/livesales.js"></script>
 <script src="/js/accounts.js"></script>
 <script src="/js/settings.js"></script>
+<script src="/js/fullscreen.js"></script>
 <script src="/js/main.js"></script>
 </body>
 </html>

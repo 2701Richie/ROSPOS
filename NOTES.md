@@ -52,6 +52,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Client only, no server change |
 | `js/receipts.js` | Receipts tab: sale list, view, password-protected void and change popups |
 | `js/livesales.js` | Live Sales tab: today's sales as a newest-first feed (tap a row for items; filters by status and cashier; new sales highlight briefly) plus a "sold today by product" tally with search. Refreshed every 5 seconds from `/api/state`. Client only |
+| `js/fullscreen.js` | Full-screen button in the header (hidden where the browser cannot) |
 | `js/main.js` | Startup and the 15-second refresh on the Sell tab |
 
 Scripts are plain (not modules) and share one global scope. Load order is in `index.html`.
