@@ -159,8 +159,37 @@ def settings():
     return cfg
 
 
+def can_see_cost():
+    """Product costs are for managers and owners only: staff never receive them from the server."""
+    return bool(ACTOR) and ROLES[ACTOR["role"]] >= ROLES["manager"]
+
+
+def no_cost(d):
+    return {k: v for k, v in d.items() if k != "c"}
+
+
 def pub():
-    return {"p": S["p"], "s": S["s"], "g": S["g"], "today": now()[0], "cfg": settings()}
+    p, s = S["p"], S["s"]
+    if not can_see_cost():
+        p = [no_cost(x) for x in p]
+        s = [dict(x, l=[no_cost(l) for l in x.get("l", [])]) for x in s]
+    return {"p": p, "s": s, "g": S["g"], "today": now()[0], "cfg": settings()}
+
+
+def cost_of(v):
+    """Cost per unit: None (unknown) for blank, else a valid money amount. Anything else is refused."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    if not good_num(v):
+        raise Err(400, "Enter a valid cost, or leave it blank.")
+    return R(v)
+
+
+def set_cost(x, c):
+    if c is None:
+        x.pop("c", None)
+    else:
+        x["c"] = c
 
 
 def log(n, k, a, z, pid=None, why=""):
@@ -322,7 +351,10 @@ def r_sale(b, ip):
             raise Err(409, "%s is expired and cannot be sold." % p["n"])
         if q > p["s"]:
             raise Err(409, "Not enough stock for %s (only %d left)." % (p["n"], p["s"]))
-        lines.append({"id": i, "n": p["n"], "q": q, "p": p["p"]})
+        line = {"id": i, "n": p["n"], "q": q, "p": p["p"]}
+        if p.get("c") is not None:
+            line["c"] = p["c"]  # cost at the time of sale, kept for profit reports
+        lines.append(line)
         tot += q * p["p"]
     tot = R(tot)
     cash = b.get("cash")
@@ -339,7 +371,7 @@ def r_sale(b, ip):
             "by": ACTOR["name"], "uid": ACTOR["id"]}
     S["s"].append(sale)
     save()
-    return {"sale": sale}
+    return {"sale": sale if can_see_cost() else dict(sale, l=[no_cost(l) for l in sale["l"]])}
 
 
 def r_login(b, ip):
@@ -423,18 +455,25 @@ def r_product(b, ip):
     if not n or not good_num(p):
         raise Err(400, "Enter a product name and a valid price.")
     e, m, i = str(b.get("e") or ""), nint(b.get("m")), b.get("id")
+    has_c = "c" in b
+    c = cost_of(b.get("c")) if has_c else None  # checked before anything changes
     if i:
         x = prod(i)
         if not x:
             raise Err(404, "Product not found.")
         if R(p) != x["p"]:
             log(x["n"], "Price changed", x["p"], R(p))
+        if has_c and c != x.get("c"):
+            log(x["n"], "Cost changed", x.get("c") or 0, c or 0, x["id"])
+            set_cost(x, c)
         x.update(n=n, p=R(p), e=e, m=m)
     else:
         s, i = nint(b.get("s")), int(time.time() * 1000)
         while prod(i):
             i += 1
-        S["p"].append({"id": i, "n": n, "p": R(p), "s": s, "e": e, "m": m})
+        newp = {"id": i, "n": n, "p": R(p), "s": s, "e": e, "m": m}
+        set_cost(newp, c)
+        S["p"].append(newp)
         if s:
             log(n, "New product +%d" % s, 0, s, i, "Initial stock")
     save()
@@ -576,14 +615,16 @@ def r_restore(b, ip):
            or not isinstance(x.get("n"), str) or not good_num(x.get("p"))
            or not good_num(x.get("s"), MAX_NUM, whole=True)
            or not (x.get("e") is None or isinstance(x.get("e"), str))
-           or not (x.get("m") is None or good_num(x.get("m"), MAX_NUM, whole=True)) for x in d["p"]):
+           or not (x.get("m") is None or good_num(x.get("m"), MAX_NUM, whole=True))
+           or not (x.get("c") is None or good_num(x.get("c"))) for x in d["p"]):
         raise Err(400, "The backup contains an invalid product record.")
     if any(not isinstance(x, dict) or not all(k in x for k in ("no", "d", "l", "tot"))
            or not good_num(x.get("no"), MAX_NUM, whole=True) or not isinstance(x.get("d"), str)
            or not isinstance(x.get("l"), list) or not good_num(x.get("tot"))
            or any(not isinstance(line, dict) or not all(k in line for k in ("id", "n", "q", "p"))
                   or not good_num(line.get("q"), MAX_NUM, whole=True)
-                  or not good_num(line.get("p")) for line in x.get("l", [])) for x in d["s"]):
+                  or not good_num(line.get("p"))
+                  or not (line.get("c") is None or good_num(line.get("c"))) for line in x.get("l", [])) for x in d["s"]):
         raise Err(400, "The backup contains an invalid sale record.")
     if any(not isinstance(x, dict) for x in d.get("g", [])):
         raise Err(400, "The backup contains an invalid activity record.")
@@ -658,11 +699,16 @@ def r_import(b, ip):
                 errs.append(label + " is not a valid number.")
             if f != "price" and vals[f] is not None and vals[f] != int(vals[f]):
                 errs.append(label + " must be a whole number.")
+        try:
+            vals["cost"] = num(r.get("cost"))
+        except ValueError:
+            vals["cost"] = None
+            errs.append("Cost is not a valid number.")
         found = idx.get(k, []) if k else []
         if len(found) > 1:
             errs.append("Matches more than one existing product.")
         p = found[0] if len(found) == 1 else None
-        price, reorder, qty = vals["price"], vals["reorder"], vals["quantity"]
+        price, reorder, qty, cost = vals["price"], vals["reorder"], vals["quantity"], vals["cost"]
         if mode == "products":
             if not p and price is None:
                 errs.append("Price is required for a new product.")
@@ -678,20 +724,22 @@ def r_import(b, ip):
             continue
         if p and " ".join(p["n"].split()) != name:
             notes.append("'%s' in the file matched '%s'." % (name, p["n"]))
-        ops.append((p, name, price, reorder, qty))
+        ops.append((p, name, price, reorder, qty, cost))
     new = upd = same = 0
     changes = []
-    for p, name, price, reorder, qty in ops:
+    for p, name, price, reorder, qty, cost in ops:
         if mode == "products":
             if p is None:
                 new += 1
-                changes.append({"n": name, "w": "New: price %.2f, stock %d" % (price, int(qty or 0))})
+                changes.append({"n": name, "w": "New: price %.2f, stock %d%s" % (price, int(qty or 0), ", cost %.2f" % cost if cost is not None else "")})
                 continue
             ch = []
             if price is not None and R(price) != p["p"]:
                 ch.append("price %.2f \u2192 %.2f" % (p["p"], R(price)))
             if reorder is not None and int(reorder) != p["m"]:
                 ch.append("reorder %d \u2192 %d" % (p["m"], int(reorder)))
+            if cost is not None and R(cost) != p.get("c"):
+                ch.append("cost %s \u2192 %.2f" % ("%.2f" % p["c"] if p.get("c") is not None else "unknown", R(cost)))
         else:
             z = p["s"] + int(qty) if mode == "add" else int(qty)
             ch = ["stock %d \u2192 %d" % (p["s"], z)] if z != p["s"] else []
@@ -706,11 +754,13 @@ def r_import(b, ip):
     if errors or not b.get("apply"):
         return {"plan": plan}
     snapshot("pre-import")
-    for p, name, price, reorder, qty in ops:
+    for p, name, price, reorder, qty, cost in ops:
         if mode == "products":
             if p is None:
                 s = int(qty or 0)
-                S["p"].append({"id": new_id(), "n": name, "p": R(price), "s": s, "e": "", "m": int(reorder or 0)})
+                newp = {"id": new_id(), "n": name, "p": R(price), "s": s, "e": "", "m": int(reorder or 0)}
+                set_cost(newp, None if cost is None else R(cost))
+                S["p"].append(newp)
                 if s:
                     log(name, "New product +%d" % s, 0, s, S["p"][-1]["id"], why)
             else:
@@ -719,6 +769,9 @@ def r_import(b, ip):
                     p["p"] = R(price)
                 if reorder is not None:
                     p["m"] = int(reorder)
+                if cost is not None and R(cost) != p.get("c"):
+                    log(p["n"], "Cost changed", p.get("c") or 0, R(cost), p["id"], why)
+                    p["c"] = R(cost)
         else:
             o = p["s"]
             z = o + int(qty) if mode == "add" else int(qty)
