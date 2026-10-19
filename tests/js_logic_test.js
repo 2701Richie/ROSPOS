@@ -24,6 +24,26 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok((run(h,'picked()').find(x=>x.n==='Alpha')||{}).q===1,'reorder: default order quantity for a zero-level product is 1');
 }
 
+// ---- Sell: bulk quantity per tap ----
+{
+ const h=load('sell.js',{S:{p:[{id:1,n:'Alpha',p:2,s:12,e:'',m:0},{id:2,n:'Old',p:2,s:5,e:'2020-01-01',m:0}],s:[],g:[]}});
+ const q=v=>{h.el('#bq').value=v;return run(h,'bq()')};
+ ok(q('abc')===1&&q('0')===1&&q('-3')===1&&q('')===1,'sell: blank, zero, negative or text quantity means 1');
+ ok(q('7')===7&&q('5abc')===5&&q('999999999')===100000,'sell: typed quantity is used and capped at 100000');
+ run(h,'add(1,5)');ok(h.ctx.cart[0].q===5,'sell: bulk add puts 5 in the cart in one tap');
+ run(h,'add(1,5)');ok(h.ctx.cart.length===1&&h.ctx.cart[0].q===10,'sell: adding again increases the same cart line (10)');
+ const r=run(h,'add(1,5)');ok(r===false&&h.ctx.cart[0].q===10&&/Not enough stock/.test(h.ctx.said)&&/12/.test(h.ctx.said),'sell: over the stock is refused, cart unchanged, message shows stock');
+ run(h,'add(1)');ok(h.ctx.cart[0].q===11,'sell: add with no quantity still adds 1');
+ ok(run(h,'add(2,1)')===false&&/Expired/.test(h.ctx.said)&&h.ctx.cart.length===1,'sell: expired product cannot be sold in bulk either');
+ h.el('#bq').value='5';h.el('#grid').onclick({target:{closest:()=>({dataset:{id:'1'}})}});
+ ok(h.ctx.cart[0].q===11&&h.el('#bq').value==='5','sell: refused tap keeps the typed quantity so it can be corrected');
+ h.ctx.cart.length=0;h.el('#bq').value='5';h.el('#grid').onclick({target:{closest:()=>({dataset:{id:'1'}})}});
+ ok(h.ctx.cart[0].q===5&&h.el('#bq').value===1,'sell: tapping a product adds the typed quantity, then resets to 1');
+ h.ctx.cart.length=0;h.el('#bq').value='10';h.el('#q').onkeydown({key:'Enter',target:{value:'Alpha'}});
+ ok(h.ctx.cart[0]&&h.ctx.cart[0].q===10,'sell: Enter in search adds the typed quantity');
+ h.el('.bq').onclick({target:{closest:()=>({dataset:{bq:'10'}})}});ok(h.el('#bq').value==='10','sell: quick button 10 sets the quantity');
+}
+
 // ---- Full screen button ----
 {
  const noFs=load('fullscreen.js',{document:{documentElement:{},addEventListener(){}}});
