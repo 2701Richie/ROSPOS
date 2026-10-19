@@ -42,16 +42,16 @@
 <section id="v-prod" hidden>
 <div id="prodbox">
 <div class="card" style="margin-top:16px"><h3>Add or edit a product</h3>
-<div class="form"><label>Name<input id="fn"></label><label>Price (₱)<input id="fp" inputmode="decimal"></label><label>Expiry date<input id="fe" type="date"></label><label>Reorder level<input id="fm" inputmode="numeric"></label><label id="fsl">Starting stock<input id="fs" inputmode="numeric"></label></div>
+<div class="form"><label>Name<input id="fn"></label><label>Price (₱)<input id="fp" inputmode="decimal"></label><label>Cost (₱, optional)<input id="fc" inputmode="decimal"></label><label>Expiry date<input id="fe" type="date"></label><label>Reorder level<input id="fm" inputmode="numeric"></label><label id="fsl">Starting stock<input id="fs" inputmode="numeric"></label></div>
 <div class="acts"><button class="pri" id="sv">Save product</button><button id="cf">Cancel</button></div><div id="fmsg" class="err" role="status"></div></div>
 <div class="card" style="margin-top:16px"><h3>Import from a CSV file</h3>
-<p class="mu" style="margin-top:0">Columns: name, price, reorder, quantity. The first row must be the headings. Nothing is saved until you confirm the preview.</p>
+<p class="mu" style="margin-top:0">Columns: name, price, reorder, quantity, and optionally cost. The first row must be the headings. Nothing is saved until you confirm the preview.</p>
 <div class="form"><label>What should this file do?<select id="im"><option value="products">Add or update products</option><option value="add">Add received stock</option><option value="set">Set exact counts</option></select></label><label>CSV file<input id="imf" type="file" accept=".csv,text/csv"></label></div>
 <div class="acts"><button class="pri" id="ip">Preview</button><label id="imwhywrap" hidden>Reason for import (required)<input id="imwhy" placeholder="e.g. monthly stock update"></label><button class="pri" id="ia" hidden>Apply import</button><button id="ie">Export products</button><button id="it">Download template</button></div>
 <div id="io" role="status"></div></div>
 <div class="card" style="margin-top:16px"><input id="ps" type="search" placeholder="Search products by name" autocomplete="off" aria-label="Search products"><div id="pc" class="mu" style="margin:8px 0"></div>
 <div id="bulk" class="acts" hidden><b id="bn"></b><input id="bwhy" placeholder="Reason required" aria-label="Reason for deleting the selected products"><button id="bdel" type="button">Delete selected</button><button id="bclr" type="button">Clear selection</button></div>
-<div class="wrap"><table><thead><tr><th><input type="checkbox" id="pall" aria-label="Select all shown products"></th><th>Name</th><th>Price</th><th>Stock</th><th>Expiry</th><th>Status</th><th>Change quantity</th><th></th></tr></thead><tbody id="pt"></tbody></table></div>
+<div class="wrap"><table><thead><tr><th><input type="checkbox" id="pall" aria-label="Select all shown products"></th><th>Name</th><th>Price</th><th>Cost</th><th>Stock</th><th>Expiry</th><th>Status</th><th>Change quantity</th><th></th></tr></thead><tbody id="pt"></tbody></table></div>
 <p class="mu" style="margin-bottom:0">Type a number, then press Add for a delivery or Set to correct the count after a stock check.</p>
 <div id="rm" class="err" role="status"></div></div>
 <div class="card wrap" style="margin-top:16px"><h3>Inventory accountability log</h3><p class="mu" style="margin-top:0">Recent sales and stock changes, including who made them and the reason recorded.</p><table><thead><tr><th>When</th><th>Product</th><th>Change</th><th>By</th><th>Count</th><th>Reason</th></tr></thead><tbody id="rl"></tbody></table></div>
@@ -87,6 +87,7 @@
   <div id="forecastContent" aria-live="polite"></div>
 </div>
 <div class="stats" id="st"></div>
+<div class="stats" id="cs"></div>
 <div class="stats" id="al"></div>
 <div class="card wrap"><h3>Recent sales</h3><table><thead><tr><th>No.</th><th>Date</th><th>Items</th><th>Total</th></tr></thead><tbody id="rs"></tbody></table></div>
 <div class="card" style="margin-top:16px"><h3>Backup and restore</h3><p class="mu" style="margin-top:0">Download a backup file and keep it somewhere safe, such as a USB drive or another computer. Automatic daily database backups are also kept on this laptop.</p>

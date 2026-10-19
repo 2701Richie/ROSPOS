@@ -34,8 +34,22 @@ function drawForecast(){
  area.innerHTML=notice+'<div class="forecast-kpis"><div class="forecast-kpi"><span class="mu">Projected revenue</span><strong>'+M(R(model.revenue))+'</strong><small>Next '+forecastDays+' days · likely '+M(R(model.revenue*(1-model.band)))+' to '+M(R(model.revenue*(1+model.band)))+'</small></div><div class="forecast-kpi"><span class="mu">Projected transactions</span><strong>'+model.transactions.toLocaleString('en-PH')+'</strong><small>Expected completed sales</small></div><div class="forecast-kpi"><span class="mu">Average per day</span><strong>'+M(model.avg)+'</strong><small>Estimated daily revenue</small></div></div><div class="forecast-legend"><span><i class="legend-dot actual-dot"></i>Historical sales</span><span><i class="legend-dot forecast-dot"></i>Forecast</span><span class="mu">Daily revenue · PHP</span></div><div class="forecast-chart">'+forecastChart(model)+'</div><div class="forecast-foot"><span>Model: recent trend + weekday averages</span><span>Based on '+model.historyDays+' days of available history</span></div>'
 }
 document.querySelectorAll('[data-fdays]').forEach(b=>b.addEventListener('click',()=>{forecastDays=Number(b.dataset.fdays)||30;drawForecast()}));
+function costStats(){
+ const costed=S.p.filter(p=>p.c!=null),sum=(a,f)=>R(a.reduce((t,p)=>t+f(p),0)),now=lists().now,rc=now.filter(x=>x.p.c!=null);
+ const prof=from=>{let profit=0,rev=0,lines=0,missing=0;for(const s of S.s){if(s.v||!s.d||s.d<from||s.d>T)continue;for(const l of s.l){if(l.c==null){missing++;continue}lines++;profit+=(l.p-l.c)*l.q;rev+=l.p*l.q}}return{profit:R(profit),revenue:R(rev),lines,missing}};
+ return{atCost:sum(costed,p=>p.s*p.c),atPrice:sum(costed,p=>p.s*p.p),unknown:S.p.length-costed.length,total:S.p.length,reorderCount:now.length,reorderCost:R(rc.reduce((t,x)=>t+sug(x.p)*x.p.c,0)),reorderUnknown:now.length-rc.length,today:prof(T),d30:prof(shiftDay(T,-29))}
+}
+function drawCost(){
+ const c=costStats(),card=(l,v,n)=>'<div class="card"><span class="mu">'+l+'</span><b>'+v+'</b><small class="mu">'+n+'</small></div>';
+ const pn=x=>(x.lines+x.missing===0?'No sales yet':x.missing?x.missing+' item line'+(x.missing>1?'s':'')+' without a cost not counted':'Every item line has a cost')+(x.revenue?' \u00b7 margin '+Math.round(x.profit/x.revenue*100)+'%':'');
+ $('#cs').innerHTML=card('Stock value at cost',M(c.atCost),c.unknown?c.unknown+' of '+c.total+' products have no cost yet':'All '+c.total+' products have a cost')
+ +card('Stock value at selling price',M(c.atPrice),'Products with a cost only')
+ +card('Estimated cost to reorder',M(c.reorderCost),c.reorderCount+' product'+(c.reorderCount===1?'':'s')+' to reorder'+(c.reorderUnknown?', '+c.reorderUnknown+' without a cost':''))
+ +card('Gross profit today',M(c.today.profit),pn(c.today))
+ +card('Gross profit, last 30 days',M(c.d30.profit),pn(c.d30))
+}
 function drawRep(){
- const td=S.s.filter(s=>s.d===T&&!s.v),sum=k=>R(td.reduce((a,s)=>a+s[k],0));drawForecast();
+ const td=S.s.filter(s=>s.d===T&&!s.v),sum=k=>R(td.reduce((a,s)=>a+s[k],0));drawForecast();drawCost();
  $('#st').innerHTML='<div class="card"><span class="mu">Sales today</span><b>'+td.length+'</b></div><div class="card"><span class="mu">Total today</span><b>'+M(sum('tot'))+'</b></div>';
  const L=(f,g)=>{const a=S.p.filter(f);return a.length?a.map(g).join(''):'<li class="mu">None</li>'};
  $('#al').innerHTML='<div class="card"><h3>Expired</h3><ul>'+L(p=>p.e&&p.e<T,p=>'<li>'+esc(p.n)+' ('+p.e+'), '+p.s+' left</li>')+'</ul></div><div class="card"><h3>Expiring within 90 days</h3><ul>'+L(p=>p.e&&p.e>=T&&p.e<=ds(90),p=>'<li>'+esc(p.n)+' ('+p.e+'), '+p.s+' left</li>')+'</ul></div><div class="card"><h3>Low stock</h3><ul>'+L(p=>p.m>0&&p.s<=p.m,p=>'<li>'+esc(p.n)+': '+p.s+' left</li>')+'</ul></div>';

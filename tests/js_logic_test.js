@@ -5,7 +5,7 @@ const root=process.argv[2]||path.join(__dirname,'..');
 let bad=0;const ok=(c,m)=>{console.log((c?'ok   ':'FAIL ')+m);if(!c)bad++};
 function load(file,extra){
  const els={};const el=id=>els[id]||(els[id]={value:'',textContent:'',innerHTML:'',hidden:false,style:{},title:''});
- const ctx=Object.assign({$:s=>el(s),document:{querySelector:s=>el(s)},window:{},localStorage:{getItem:()=>null,setItem(){}},
+ const ctx=Object.assign({$:s=>el(s),document:{querySelector:s=>el(s),querySelectorAll:()=>[]},window:{},localStorage:{getItem:()=>null,setItem(){}},
   S:{p:[],s:[],g:[]},T:'2026-10-19',cart:[],said:'',say(m){ctx.said=m},M:n=>n,R:n=>Math.round(n*100)/100,esc:s=>s,tags:()=>''},extra||{});
  vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'js',file),'utf8'),ctx);return{ctx,el};
 }
@@ -85,6 +85,54 @@ pending.push((async()=>{
  doc.fullscreenElement={};ls.fullscreenchange();ok(h.el('#fsb').textContent==='Exit full screen','fullscreen: label changes to Exit full screen');
  h.el('#fsb').onclick();ok(calls.join()==='req,exit','fullscreen: tap while full screen exits it');
  doc.fullscreenElement=null;ls.fullscreenchange();ok(h.el('#fsb').textContent==='Full screen','fullscreen: label returns to Full screen');
+}
+
+// ---- Cost: report numbers ----
+{
+ const S0={p:[{id:1,n:'A',p:10,s:10,m:4,c:6},{id:2,n:'B',p:20,s:2,m:5,c:8},{id:3,n:'C',p:5,s:5,m:0},{id:4,n:'D',p:3,s:0,m:0,c:1}],
+  s:[{no:1,d:'2026-10-19',l:[{id:1,q:2,p:10,c:6},{id:3,q:1,p:5}]},{no:2,d:'2026-10-19',v:true,l:[{id:1,q:9,p:10,c:6}]},
+     {no:3,d:'2026-10-01',l:[{id:2,q:1,p:20,c:8}]},{no:4,d:'2026-08-01',l:[{id:2,q:5,p:20,c:8}]}],g:[]};
+ const h=load('reports.js',{S:S0});run(h,'1');vm.runInContext(fs.readFileSync(path.join(root,'js','reorder.js'),'utf8'),h.ctx);
+ const c=run(h,'costStats()');
+ ok(c.atCost===76&&c.atPrice===140,'cost: stock value at cost 76 and at selling price 140 (products with a cost only)');
+ ok(c.unknown===1&&c.total===4,'cost: one of four products has no cost');
+ ok(c.reorderCount===2&&c.reorderCost===65&&c.reorderUnknown===0,'cost: reorder estimate uses the Reorder list quantities (8 x 8 + 1 x 1 = 65)');
+ ok(c.today.profit===8&&c.today.revenue===20&&c.today.lines===1&&c.today.missing===1,'cost: profit today counts only lines with a cost, skips void sales, counts the line without cost');
+ ok(c.d30.profit===20&&c.d30.lines===2&&c.d30.missing===1,'cost: 30-day profit includes day 18 and excludes sales older than 30 days');
+ run(h,'drawCost()');const html=h.el('#cs').innerHTML;
+ ok(/Stock value at cost/.test(html)&&/1 of 4 products have no cost yet/.test(html)&&/2 products to reorder/.test(html),'cost: report cards show value, unknown count and reorder count');
+ ok(/1 item line without a cost not counted/.test(html)&&/margin 40%/.test(html)&&/margin 50%/.test(html),'cost: profit cards show the uncounted lines and the margin');
+ const none=load('reports.js',{S:{p:[{id:1,n:'A',p:10,s:3,m:0},{id:2,n:'B',p:5,s:0,m:0}],s:[{no:1,d:'2026-10-19',l:[{id:1,q:1,p:10}]}],g:[]}});
+ vm.runInContext(fs.readFileSync(path.join(root,'js','reorder.js'),'utf8'),none.ctx);
+ const z=run(none,'costStats()');
+ ok(z.atCost===0&&z.unknown===2&&z.reorderCost===0&&z.reorderUnknown===1&&z.today.profit===0,'cost: with no costs anywhere (staff view) every figure is zero and nothing breaks');
+}
+
+// ---- Cost: product form, table and CSV ----
+pending.push((async()=>{
+ const calls=[];
+ const prods=[{id:1,n:'Alpha',p:10,s:5,e:'',m:0,c:6.5},{id:2,n:'Beta',p:5,s:5,e:'',m:0}];
+ const h=load('products.js',{S:{p:prods.slice(),s:[],g:[]},edit:null,window:{scrollTo(){}},api:async(p,b)=>{calls.push([p,b]);return {}},fail(){},clampCart(){},drawGrid(){},drawLines(){}});
+ const tick=()=>new Promise(r=>setTimeout(r,0));
+ const save=async(cost)=>{h.el('#fn').value='X';h.el('#fp').value='10';h.el('#fc').value=cost;h.el('#fmsg').textContent='';h.el('#sv').onclick();await tick()};
+ await save('');ok(calls.length===1&&calls[0][1].c===null,'cost form: blank cost is sent as null (unknown)');
+ await save('6.5');ok(calls.length===2&&calls[0][0]==='/api/product'&&calls[1][1].c===6.5,'cost form: a typed cost is sent as a number');
+ for(const bad of ['-1','abc','₱5']){const n=calls.length;await save(bad);ok(calls.length===n&&/valid cost/.test(h.el('#fmsg').textContent),'cost form: "'+bad+'" is refused with a message and nothing is sent')}
+ h.el('#pt').onclick({target:{closest:()=>({dataset:{e:'1'}})}});ok(h.el('#fc').value===6.5,'cost form: Edit fills in the existing cost');
+ h.el('#pt').onclick({target:{closest:()=>({dataset:{e:'2'}})}});ok(h.el('#fc').value==='','cost form: Edit of a product with no cost leaves the box empty');
+ run(h,'drawProd()');const t=h.el('#pt').innerHTML;ok(/6\.5/.test(t)&&/—/.test(t),'cost table: Cost column shows the cost, or a dash when unknown');
+ run(h,'clearForm()');ok(h.el('#fc').value==='','cost form: Cancel clears the cost box');
+})());
+{
+ const blobs=[],doc={querySelector:()=>({}),querySelectorAll:()=>[],createElement:()=>({click(){},remove(){}}),body:{appendChild(){}}};
+ const h=load('import.js',{S:{p:[{id:1,n:'B',p:5,s:1,m:2,c:3},{id:2,n:'A',p:9,s:4,m:0}],s:[],g:[]},document:doc,Blob:class{constructor(p){blobs.push(p[0])}},setTimeout:()=>0,URL:{createObjectURL:()=>'x',revokeObjectURL(){}}});
+ const lines=b=>b.replace(/^\uFEFF/,'').trim().split('\r\n');
+ const r1=run(h,"toRows('name,price,Unit Cost\\nA,10,6.5\\nB,5,')");
+ ok(!r1.error&&r1.rows[0].cost==='6.5'&&r1.rows[1].cost==='','cost csv: a "Unit Cost" column is recognised, blank cells stay blank');
+ const r2=run(h,"toRows('name,price\\nA,10')");ok(!r2.error&&r2.rows[0].cost==='','cost csv: a file with no cost column still reads');
+ h.el('#ie').onclick();const ex=lines(blobs[0]);
+ ok(ex[0]==='name,price,reorder,quantity,cost'&&ex[1]==='A,9,0,4,'&&ex[2]==='B,5,2,1,3','cost csv: export has a cost column (blank when unknown)');
+ h.el('#it').onclick();ok(lines(blobs[1])[0]==='name,price,reorder,quantity,cost','cost csv: template has a cost column');
 }
 
 Promise.all(pending).then(()=>process.exit(bad?1:0),e=>{console.log('FAIL test crashed: '+e);process.exit(1)});
