@@ -9,7 +9,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB", os.path.join(HERE, "data", "pos.db"))
 BACKUP_DIR = os.environ.get("POS_BACKUP_DIR", os.path.join(HERE, "backups"))
 ARCHIVE_DIR = os.environ.get("POS_ARCHIVE_DIR", os.path.join(HERE, "archives"))
-HOT_DAYS = max(1, int(os.environ.get("POS_HOT_DAYS", "7")))  # sales/audit older than this leave live state
+try:
+    HOT_DAYS = max(1, int(os.environ.get("POS_HOT_DAYS", "7")))  # sales/audit older than this leave live state
+except ValueError:
+    HOT_DAYS = 7
 PORT = int(os.environ.get("POS_PORT", "8000"))
 LOCK = threading.RLock()
 
@@ -60,10 +63,15 @@ def valid_day(d):
     return isinstance(d, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
 
 
+def max_sale_no(rows):
+    """Highest whole-number sale no in rows; ignores rows with a missing or odd no."""
+    return max((x["no"] for x in rows if isinstance(x, dict) and isinstance(x.get("no"), int)
+                and not isinstance(x.get("no"), bool)), default=0)
+
+
 def next_sale_no():
     """Monotonic sale numbers that survive archiving (never reuse a number after old sales leave live state)."""
-    live_max = max((s.get("no") or 0 for s in S["s"]), default=0)
-    n = max(get("sale_seq") or 0, live_max) + 1
+    n = max(get("sale_seq") or 0, max_sale_no(S["s"])) + 1
     put("sale_seq", n)
     return n
 
@@ -77,11 +85,13 @@ def _merge_day_archive(day, sales, logs):
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 prev = json.load(fh)
-            if isinstance(prev, dict):
-                data["s"] = list(prev.get("s") or [])
-                data["g"] = list(prev.get("g") or [])
+            if not isinstance(prev, dict):
+                raise ValueError("not an archive file")
+            data["s"] = list(prev.get("s") or [])
+            data["g"] = list(prev.get("g") or [])
         except (OSError, ValueError, TypeError):
-            pass
+            # never overwrite an unreadable archive: keep it aside, then start a fresh file
+            os.replace(path, path + ".corrupt-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
     by_no = {s["no"]: s for s in data["s"] if isinstance(s, dict) and "no" in s}
     for s in sales:
         by_no[s["no"]] = s
@@ -100,6 +110,18 @@ def _merge_day_archive(day, sales, logs):
     os.replace(tmp, path)
 
 
+def safe_archive():
+    """archive_old that never raises: a full disk or bad folder must not stop the POS or its backups. Call under LOCK."""
+    try:
+        n = archive_old()
+        if n:
+            print("Archived %d old sale(s) to %s" % (n, ARCHIVE_DIR), flush=True)
+        return n
+    except Exception:
+        traceback.print_exc()
+        return 0
+
+
 def archive_old():
     """Move sales and audit rows older than HOT_DAYS into one JSON file per day. Call under LOCK."""
     today = now()[0]
@@ -108,6 +130,8 @@ def archive_old():
     old_logs = [g for g in S["g"] if valid_day(g.get("d")) and g["d"] < keep_from]
     if not old_sales and not old_logs:
         return 0
+    # Remember the highest sale number before rows leave live state, so numbers are never reused.
+    put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
     by_day_s, by_day_g = {}, {}
     for s in old_sales:
         by_day_s.setdefault(s["d"], []).append(s)
@@ -525,9 +549,12 @@ def r_restore(b, ip):
         raise Err(400, "This backup has invalid or excessive data.")
     if any(not isinstance(x, dict) or not all(k in x for k in ("id", "n", "p", "s"))
            or not isinstance(x.get("n"), str) or not good_num(x.get("p"))
-           or not good_num(x.get("s"), MAX_NUM, whole=True) for x in d["p"]):
+           or not good_num(x.get("s"), MAX_NUM, whole=True)
+           or not (x.get("e") is None or isinstance(x.get("e"), str))
+           or not (x.get("m") is None or good_num(x.get("m"), MAX_NUM, whole=True)) for x in d["p"]):
         raise Err(400, "The backup contains an invalid product record.")
     if any(not isinstance(x, dict) or not all(k in x for k in ("no", "d", "l", "tot"))
+           or not good_num(x.get("no"), MAX_NUM, whole=True) or not isinstance(x.get("d"), str)
            or not isinstance(x.get("l"), list) or not good_num(x.get("tot"))
            or any(not isinstance(line, dict) or not all(k in line for k in ("id", "n", "q", "p"))
                   or not good_num(line.get("q"), MAX_NUM, whole=True)
@@ -538,9 +565,8 @@ def r_restore(b, ip):
     # Keep an immediate database-level recovery point before replacing live data.
     snapshot("pre-restore")
     S = {"p": d["p"], "s": d["s"], "g": d.get("g", [])}
-    live_max = max((s.get("no") or 0 for s in S["s"]), default=0)
-    put("sale_seq", max(get("sale_seq") or 0, live_max))
-    archive_old()
+    put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
+    safe_archive()
     save()
     return {"msg": "Backup restored successfully."}
 
@@ -825,9 +851,7 @@ def backup_loop():
     while True:
         try:
             with LOCK:
-                n = archive_old()
-                if n:
-                    print("Archived %d old sale(s) to %s" % (n, ARCHIVE_DIR), flush=True)
+                safe_archive()
             os.makedirs(BACKUP_DIR, exist_ok=True)
             f = os.path.join(BACKUP_DIR, "pos-%s.db" % now()[0])
             with LOCK:
@@ -861,9 +885,7 @@ if __name__ == "__main__":
         print("Password changed. Restart the server now: sudo systemctl restart pos")
         sys.exit(0)
     with LOCK:
-        n = archive_old()
-        if n:
-            print("Archived %d old sale(s) to %s" % (n, ARCHIVE_DIR), flush=True)
+        safe_archive()
     threading.Thread(target=backup_loop, daemon=True).start()
     if not U:
         print("FIRST-TIME SETUP CODE: %s  (open the POS in a browser and create the owner account)" % SETUP_CODE, flush=True)

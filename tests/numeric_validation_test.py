@@ -191,8 +191,14 @@ for cid, lbl, kw in [("R1", "product price NaN", dict(prod_p="NaN")), ("R2", "pr
                      ("R9", "sale line quantity true", dict(line_q="true")), ("R10", "product price negative", dict(prod_p="-1"))]:
     run(cid, "restore backup with " + lbl, restore(backup(**kw)), "reject")
 run("R11", "valid: restore a well-formed backup", restore(backup()), "accept")
-run("R12", "advisory: restore with non-string expiry / string reorder level",
-    restore('{"p":[{"id":1,"n":"A","p":5,"s":3,"e":123,"m":"x"}],"s":[],"g":[]}'), "info")
+run("R12", "restore with non-string expiry / string reorder level",
+    restore('{"p":[{"id":1,"n":"A","p":5,"s":3,"e":123,"m":"x"}],"s":[],"g":[]}'), "reject")
+run("R13", "restore with string sale number",
+    restore(backup().replace('"no":1', '"no":"1"')), "reject")
+run("R14", "restore with boolean sale number",
+    restore(backup().replace('"no":1', '"no":true')), "reject")
+run("R15", "restore with non-string sale date",
+    restore(backup().replace('"d":"2026-01-01"', '"d":20260101')), "reject")
 
 # ---- import ----------------------------------------------------------------------------------------
 def imp(rows_json, mode="products", apply_="true"):

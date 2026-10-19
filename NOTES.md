@@ -30,7 +30,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 
 **Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/run.py` once at the end, not after every edit.
 
-**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Known bug, fix awaiting approval: on the first start after updating an older database `sale_seq` is not set, so sale numbers restart at 1 after old sales are archived (test A1 fails until fixed). Queued, not started: in-app updater (owner only, safety backup first); see "Not built yet" below.
+**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Queued, not started: in-app updater (owner only, safety backup first); see "Not built yet" below.
 
 ## Files
 

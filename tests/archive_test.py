@@ -77,6 +77,34 @@ ok(b == a + 1 and a > 30, "A6 next numbers keep increasing (%s, %s)" % (a, b))
 # A7 archive survives a restart of the process state: the file is plain readable JSON
 ok(all(isinstance(json.load(open(os.path.join(srv.ARCHIVE_DIR, x))), dict) for x in os.listdir(srv.ARCHIVE_DIR)), "A7 every archive file is valid JSON")
 
+# A8 an unreadable archive file is kept aside, never overwritten
+bad_day = day(hot + 9)
+os.makedirs(srv.ARCHIVE_DIR, exist_ok=True)
+open(arch(bad_day), "w").write("{ this is not json")
+srv._merge_day_archive(bad_day, [sale(40, bad_day)], [])
+kept = [x for x in os.listdir(srv.ARCHIVE_DIR) if x.startswith("sales-%s.json.corrupt-" % bad_day)]
+ok(len(kept) == 1 and open(os.path.join(srv.ARCHIVE_DIR, kept[0])).read() == "{ this is not json", "A8 unreadable archive kept aside as .corrupt-*")
+ok([s["no"] for s in json.load(open(arch(bad_day)))["s"]] == [40], "A8 fresh archive written next to it")
+
+# A9 archive failure (bad folder) never raises and never loses live rows
+good_dir = srv.ARCHIVE_DIR
+open(TMP + "/blocker", "w").write("x")
+srv.ARCHIVE_DIR = TMP + "/blocker/sub"
+srv.S = {"p": [], "s": [sale(50, day(hot + 5))], "g": []}
+try:
+    r = srv.safe_archive()
+    ok(r == 0 and len(srv.S["s"]) == 1, "A9 failed archive returns 0 and keeps the sale live")
+except Exception as e:
+    ok(False, "A9 safe_archive raised %r" % e)
+srv.ARCHIVE_DIR = good_dir
+
+# A10 odd sale numbers in live data do not break numbering
+srv.S = {"p": [], "s": [{"no": "x", "d": today}, {"no": True, "d": today}, sale(60, today)], "g": []}
+try:
+    ok(srv.next_sale_no() > 60, "A10 next_sale_no ignores rows with odd sale numbers")
+except Exception as e:
+    ok(False, "A10 next_sale_no raised %r" % e)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("FAILED %d" % bad if bad else "ALL PASSED")
 sys.exit(1 if bad else 0)
