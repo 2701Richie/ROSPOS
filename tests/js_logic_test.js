@@ -25,24 +25,23 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok((run(h,'picked()').find(x=>x.n==='Alpha')||{}).q===1,'reorder: default order quantity for a zero-level product is 1');
 }
 
-// ---- Sell: bulk quantity per tap ----
+// ---- Sell: type the quantity on a cart line ----
 {
  const h=load('sell.js',{S:{p:[{id:1,n:'Alpha',p:2,s:12,e:'',m:0},{id:2,n:'Old',p:2,s:5,e:'2020-01-01',m:0}],s:[],g:[]}});
- const q=v=>{h.el('#bq').value=v;return run(h,'bq()')};
- ok(q('abc')===1&&q('0')===1&&q('-3')===1&&q('')===1,'sell: blank, zero, negative or text quantity means 1');
- ok(q('7')===7&&q('5abc')===5&&q('999999999')===100000,'sell: typed quantity is used and capped at 100000');
- run(h,'add(1,5)');ok(h.ctx.cart[0].q===5,'sell: bulk add puts 5 in the cart in one tap');
- run(h,'add(1,5)');ok(h.ctx.cart.length===1&&h.ctx.cart[0].q===10,'sell: adding again increases the same cart line (10)');
- const r=run(h,'add(1,5)');ok(r===false&&h.ctx.cart[0].q===10&&/Not enough stock/.test(h.ctx.said)&&/12/.test(h.ctx.said),'sell: over the stock is refused, cart unchanged, message shows stock');
- run(h,'add(1)');ok(h.ctx.cart[0].q===11,'sell: add with no quantity still adds 1');
- ok(run(h,'add(2,1)')===false&&/Expired/.test(h.ctx.said)&&h.ctx.cart.length===1,'sell: expired product cannot be sold in bulk either');
- h.el('#bq').value='5';h.el('#grid').onclick({target:{closest:()=>({dataset:{id:'1'}})}});
- ok(h.ctx.cart[0].q===11&&h.el('#bq').value==='5','sell: refused tap keeps the typed quantity so it can be corrected');
- h.ctx.cart.length=0;h.el('#bq').value='5';h.el('#grid').onclick({target:{closest:()=>({dataset:{id:'1'}})}});
- ok(h.ctx.cart[0].q===5&&h.el('#bq').value===1,'sell: tapping a product adds the typed quantity, then resets to 1');
- h.ctx.cart.length=0;h.el('#bq').value='10';h.el('#q').onkeydown({key:'Enter',target:{value:'Alpha'}});
- ok(h.ctx.cart[0]&&h.ctx.cart[0].q===10,'sell: Enter in search adds the typed quantity');
- h.el('.bq').onclick({target:{closest:()=>({dataset:{bq:'10'}})}});ok(h.el('#bq').value==='10','sell: quick button 10 sets the quantity');
+ const q=()=>h.ctx.cart.length?h.ctx.cart[0].q:null;
+ run(h,'add(1)');run(h,'add(1)');ok(q()===2,'sell: tapping a product twice gives quantity 2');
+ run(h,'setQty(1,"5")');ok(q()===5,'sell: typing 5 sets the line to 5');
+ run(h,'setQty(1,"25")');ok(q()===12&&/Only 12/.test(h.ctx.said),'sell: typing more than the stock sets the maximum and shows the stock');
+ run(h,'setQty(1,"5")');run(h,'setQty(1,"abc")');ok(q()===5&&/whole number/.test(h.ctx.said),'sell: text keeps the old quantity and asks for a whole number');
+ run(h,'setQty(1,"-2")');ok(q()===5,'sell: a negative number keeps the old quantity');
+ run(h,'setQty(1," 7.9 ")');ok(q()===7,'sell: spaces and decimals are tolerated (7.9 becomes 7)');
+ run(h,'setQty(1,"0")');ok(h.ctx.cart.length===0,'sell: typing 0 removes the line');
+ run(h,'add(1)');run(h,'setQty(1,"")');ok(h.ctx.cart.length===0,'sell: clearing the box removes the line');
+ run(h,'add(1)');h.el('#lines').onchange({target:{classList:{contains:c=>c==='qn'},dataset:{id:'1'},value:'3'}});ok(q()===3,'sell: the change event on a quantity box updates the line');
+ run(h,'drawLines()');const html=h.el('#lines').innerHTML;ok(/class="qn"/.test(html)&&/value="3"/.test(html),'sell: the cart line shows an editable quantity box with the current value');
+ run(h,'setQty(1,"12")');run(h,'add(1)');ok(q()===12&&/Not enough stock/.test(h.ctx.said),'sell: tapping a product at full stock is still refused');
+ ok(run(h,'add(2)')===false&&/Expired/.test(h.ctx.said),'sell: expired products still cannot be added');
+ run(h,'setQty(99,"4")');ok(q()===12,'sell: typing for a line that is not in the cart does nothing');
 }
 
 // ---- Products: bulk delete selection ----

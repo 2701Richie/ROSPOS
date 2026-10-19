@@ -43,7 +43,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
 | `js/core.js` | Shared state `S`, helpers (`R`, `M`, `esc`, `tags`), `api()`, `load()`, `show(tab)`, sign-in screen and role checks (`can()`) |
-| `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add(id, qty)`, `bq()` quantity per tap), checkout (`#pay`), `receipt()` popup, `clampCart` |
+| `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`, `setQty` typed quantity on a cart line), checkout (`#pay`), `receipt()` popup, `clampCart` |
 | `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, tick boxes with bulk delete (`sel`), stock log with who made each change |
 | `js/accounts.js` | Accounts tab (owner): add accounts, roles, reset password, disable |
 | `js/settings.js` | Settings tab (owner): store name, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt, and the theme button in the header (every role, this device only: Automatic, Light, Dark; saved in the browser as `pos-theme`, applied early by a script in `index.html`) |
@@ -90,7 +90,7 @@ Errors come back as `{error}`.
 - Every sale, stock change, price change, void and change records the signed-in person's name. Checkout stock reductions are recorded in the inventory accountability log. Product deletion and CSV imports require a reason; routine stock changes are logged with an automatic description.
 - No discounts and no VAT: the price is the price. Old sales from earlier versions may still show a discount.
 - Expired products can't be sold. Selling past stock is refused. Expiry date is optional per product; blank means never flagged or blocked.
-- Sell tab "Qty per tap": type a number or press 1, 5 or 10; each product tap adds that many (still limited by stock and expiry) and then resets to 1. A refused tap keeps the typed number.
+- Sell tab cart: the number on each line is a box. Type a quantity and leave the box (or press Enter): more than the stock sets the maximum, 0 or blank removes the line, text or a negative number keeps the old quantity. The 15-second refresh skips while a quantity box is focused.
 - Bulk delete (Products tab): tick products, give one reason, confirm. Search changes clear the selection, so hidden products can never be deleted unseen. Old receipts keep their items.
 - Sales are never deleted. Void returns stock and keeps the sale marked void. Change edits quantities and cash.
 - Live state keeps about 7 days of sales and audit rows (`POS_HOT_DAYS`, default 7). Older rows are moved automatically (on startup and hourly) into `archives/sales-YYYY-MM-DD.json` (format `ROSPOS-day-archive`). Receipts, voids, changes, Live Sales and Reports only see the live week; open the archive file to read an older day. Sale numbers keep increasing via `sale_seq` so archiving never reuses a number.
@@ -117,7 +117,7 @@ Each feature gets: its own small commit, a test in `tests/`, and a line in NOTES
 | 5 | Sections, printable count sheets, manager "check counts" screen, differences report | large | new `js/counts.js`, `server.py`, `index.html`, `style.css` | Counting stays manual; staff assigned to sections. Build in this order: sections on products, count sheets, check-counts screen, differences report. |
 | 6 | Later | n/a | n/a | Write-offs, daily comparison with the official POS, batch numbers, HTTPS and a sturdier web server. |
 
-Dependencies: 2 needs 1. 3 needs the test runner (done). 5 is easier after the `server.py` split is decided. Built already: zero-stock items in Reorder, Full screen button, Qty per tap on Sell, bulk delete in Products.
+Dependencies: 2 needs 1. 3 needs the test runner (done). 5 is easier after the `server.py` split is decided. Built already: zero-stock items in Reorder, Full screen button, typed quantity on Sell cart lines, bulk delete in Products.
 
 ## Not built yet
 
