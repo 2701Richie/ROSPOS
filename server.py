@@ -455,6 +455,31 @@ def r_delete(b, ip):
     return {}
 
 
+def r_delete_many(b, ip):
+    """Delete several products at once (manager and owner). All or nothing; one audit row per product; sales history is kept."""
+    allow("manager")
+    ids = b.get("ids")
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 1000:
+        raise Err(400, "Select between 1 and 1000 products to delete.")
+    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
+        raise Err(400, "The selection is not valid.")
+    why = str(b.get("why", "")).strip()
+    if not why:
+        raise Err(400, "Enter a reason for deleting these products.")
+    items = []
+    for i in dict.fromkeys(ids):
+        x = prod(i)
+        if not x:
+            raise Err(404, "A selected product no longer exists. Nothing was deleted.")
+        items.append(x)
+    snapshot("pre-bulk-delete")
+    for x in items:
+        log(x["n"], "Deleted", x["s"], 0, x["id"], why)
+        S["p"].remove(x)
+    save()
+    return {"msg": "Deleted %d product%s." % (len(items), "" if len(items) == 1 else "s")}
+
+
 def r_stock(b, ip):
     allow("manager")
     p, v, mode = prod(b.get("id")), str(b.get("v", "")).strip(), b.get("mode")
@@ -739,7 +764,7 @@ def r_settings(b, ip):
     return {"msg": "Settings saved." if changed else "No changes."}
 
 
-ROUTES = {"/api/settings": r_settings, "/api/sale": r_sale, "/api/product": r_product, "/api/delete": r_delete, "/api/stock": r_stock,
+ROUTES = {"/api/settings": r_settings, "/api/sale": r_sale, "/api/product": r_product, "/api/delete": r_delete, "/api/delete-many": r_delete_many, "/api/stock": r_stock,
           "/api/void": r_void, "/api/change": r_change, "/api/restore": r_restore, "/api/import": r_import,
           "/api/users": r_users, "/api/user": r_user, "/api/mypassword": r_mypw}
 PUBLIC = {"/api/login": r_login, "/api/setup": r_setup}

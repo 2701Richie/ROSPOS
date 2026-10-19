@@ -23,7 +23,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 **Run the tests (one command, prints one line, then only failures):**
 - `python3 tests/run.py` tests the working tree including uncommitted edits.
 - `python3 tests/run.py --clone` clones GitHub and tests that (run it after every push).
-- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/theme_test.js` (each takes an optional source folder).
+- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
 - Add a test for every new rule: put `ok   ...` / `FAIL ...` lines in a new `tests/*_test.py` and add its name to `run.py`.
 
 **Screenshots (only for visual work):** the harness lives outside the repo, in `pos-tests/demo` next to the project folder. `bash pos-tests/demo/shoot.sh` copies the front-end, injects fake data (`demo.js`), serves it on port 8077 and saves PNGs in `/tmp/shots` with headless chromium. URL knobs: `?tab=sell|live|rep|set|receipt&taps=0|1|2` (taps = theme button presses). Look at one image, not all.
@@ -43,13 +43,13 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
 | `js/core.js` | Shared state `S`, helpers (`R`, `M`, `esc`, `tags`), `api()`, `load()`, `show(tab)`, sign-in screen and role checks (`can()`) |
-| `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`), checkout (`#pay`), `receipt()` popup, `clampCart` |
-| `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, stock log with who made each change |
+| `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add(id, qty)`, `bq()` quantity per tap), checkout (`#pay`), `receipt()` popup, `clampCart` |
+| `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, tick boxes with bulk delete (`sel`), stock log with who made each change |
 | `js/accounts.js` | Accounts tab (owner): add accounts, roles, reset password, disable |
 | `js/settings.js` | Settings tab (owner): store name, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt, and the theme button in the header (every role, this device only: Automatic, Light, Dark; saved in the browser as `pos-theme`, applied early by a script in `index.html`) |
 | `js/import.js` | CSV import (preview, apply), export products, download template. Parsing happens in the browser, rules in `r_import` |
 | `js/reports.js` | Reports tab: today's totals, alerts, recent sales, backup show/restore |
-| `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Client only, no server change |
+| `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Products with zero stock always appear. Client only, no server change |
 | `js/receipts.js` | Receipts tab: sale list, view, password-protected void and change popups |
 | `js/livesales.js` | Live Sales tab: today's sales as a newest-first feed (tap a row for items; filters by status and cashier; new sales highlight briefly) plus a "sold today by product" tally with search. Refreshed every 5 seconds from `/api/state`. Client only |
 | `js/fullscreen.js` | Full-screen button in the header (hidden where the browser cannot) |
@@ -75,7 +75,7 @@ Sessions use an HttpOnly cookie (`pos_session`, SameSite=Strict, 12 hours, `POS_
 | `/api/login`, `/api/logout` | anyone / signed in | Sign in and out. 5 wrong tries lock that device and username for a minute |
 | GET `/api/state` | signed in | Current state and `me` |
 | `/api/sale` | staff and up | Server checks stock and expiry, prices from its own list, reduces stock |
-| `/api/product`, `/api/delete`, `/api/stock`, `/api/import` | manager and up | Product and stock edits. Import: mode `products`, `add` or `set`; `apply:false` previews, `apply:true` saves after a copy in `backups/pre-import-*.db`; all or nothing |
+| `/api/product`, `/api/delete`, `/api/delete-many`, `/api/stock`, `/api/import` | manager and up | Product and stock edits. `delete-many`: `ids` list (1 to 1000) plus `why`; all or nothing; one audit row per product; copy in `backups/pre-bulk-delete-*.db`. Import: mode `products`, `add` or `set`; `apply:false` previews, `apply:true` saves after a copy in `backups/pre-import-*.db`; all or nothing |
 | `/api/void`, `/api/change` | manager and up, plus `password` of the signed-in user in the request | Void or amend a sale |
 | `/api/restore` | owner, plus `password` | Restore a backup |
 | `/api/users`, `/api/user` | owner | List, add, edit, disable accounts (always one active owner) |
@@ -90,6 +90,8 @@ Errors come back as `{error}`.
 - Every sale, stock change, price change, void and change records the signed-in person's name. Checkout stock reductions are recorded in the inventory accountability log. Product deletion and CSV imports require a reason; routine stock changes are logged with an automatic description.
 - No discounts and no VAT: the price is the price. Old sales from earlier versions may still show a discount.
 - Expired products can't be sold. Selling past stock is refused. Expiry date is optional per product; blank means never flagged or blocked.
+- Sell tab "Qty per tap": type a number or press 1, 5 or 10; each product tap adds that many (still limited by stock and expiry) and then resets to 1. A refused tap keeps the typed number.
+- Bulk delete (Products tab): tick products, give one reason, confirm. Search changes clear the selection, so hidden products can never be deleted unseen. Old receipts keep their items.
 - Sales are never deleted. Void returns stock and keeps the sale marked void. Change edits quantities and cash.
 - Live state keeps about 7 days of sales and audit rows (`POS_HOT_DAYS`, default 7). Older rows are moved automatically (on startup and hourly) into `archives/sales-YYYY-MM-DD.json` (format `ROSPOS-day-archive`). Receipts, voids, changes, Live Sales and Reports only see the live week; open the archive file to read an older day. Sale numbers keep increasing via `sale_seq` so archiving never reuses a number.
 - Reorder tab: "now" is stock at or below the reorder level, "getting low" is up to 25% above it (margin kept in the browser). Suggested order quantity brings stock to double the reorder level. Products with no reorder level are ignored. Order list layout: #, Product Name, Quantity, Price (blank), A to Z.
@@ -108,18 +110,14 @@ Each feature gets: its own small commit, a test in `tests/`, and a line in NOTES
 
 | # | Feature | Size | Touches | Notes and risks |
 |---|---|---|---|---|
-| 1 | Zero-quantity items always in the Reorder list | tiny | `js/reorder.js` | Show stock 0 items first, even without a reorder level. |
-| 2 | Full-screen button | tiny | `index.html`, `js/core.js`, `style.css` | Browser Fullscreen API; hide where unsupported (some phones). |
-| 3 | Bulk quantity on Sell (add 5 or 10 at once) | small | `js/sell.js` | Typed quantity or +5/+10 buttons; must respect stock limit and `MAX_NUM`. |
-| 4 | Bulk delete in Products (manager and owner only) | small | `js/products.js`, `server.py` (new `r_delete_many`) | Owner PIN, one audit row per item, snapshot first, all-or-nothing. Sold items keep their sale lines. |
-| 5 | Cost field on products | medium | `server.py` (`r_product`, import, restore validation), `js/products.js`, `js/import.js` | New field `c` (cost per unit, optional, 0 = unknown). CSV column optional so old files still import. Needed by 6. |
-| 6 | Reports: total inventory cost and estimated replenishment cost | medium | `js/reports.js` | Needs 5. Replenishment = (reorder level - stock) x cost for low items; show "cost unknown" count. |
-| 7 | In-app updater (owner only) | large | `server.py`, `js/settings.js`, `install-*.sh` | Safety backup first, run `tests/run.py` on the new code before switching, keep previous version for one-click rollback. Decide method first: git pull or uploaded zip. Never restart without owner confirming. |
-| 8 | Remote access to the store laptop | infra | outside the repo | For updates and fixes. Prefer a private tunnel (no open router ports) plus the existing login. Decide tool before building. |
-| 9 | Sections, printable count sheets, manager "check counts" screen, differences report | large | new `js/counts.js`, `server.py`, `index.html`, `style.css` | Counting stays manual; staff assigned to sections. Build in this order: sections on products, count sheets, check-counts screen, differences report. |
-| 10 | Later | n/a | n/a | Write-offs, daily comparison with the official POS, batch numbers, HTTPS and a sturdier web server. |
+| 1 | Cost field on products | medium | `server.py` (`r_product`, import, restore validation), `js/products.js`, `js/import.js` | New field `c` (cost per unit, optional, 0 = unknown). CSV column optional so old files still import. Needed by 2. |
+| 2 | Reports: total inventory cost and estimated replenishment cost | medium | `js/reports.js` | Needs 1. Replenishment = (reorder level - stock) x cost for low items; show "cost unknown" count. |
+| 3 | In-app updater (owner only) | large | `server.py`, `js/settings.js`, `install-*.sh` | Safety backup first, run `tests/run.py` on the new code before switching, keep previous version for one-click rollback. Decide method first: git pull or uploaded zip. Never restart without owner confirming. |
+| 4 | Remote access to the store laptop | infra | outside the repo | For updates and fixes. Prefer a private tunnel (no open router ports) plus the existing login. Decide tool before building. |
+| 5 | Sections, printable count sheets, manager "check counts" screen, differences report | large | new `js/counts.js`, `server.py`, `index.html`, `style.css` | Counting stays manual; staff assigned to sections. Build in this order: sections on products, count sheets, check-counts screen, differences report. |
+| 6 | Later | n/a | n/a | Write-offs, daily comparison with the official POS, batch numbers, HTTPS and a sturdier web server. |
 
-Dependencies: 6 needs 5. 7 needs the test runner (done). 9 is easier after the `server.py` split is decided.
+Dependencies: 2 needs 1. 3 needs the test runner (done). 5 is easier after the `server.py` split is decided. Built already: zero-stock items in Reorder, Full screen button, Qty per tap on Sell, bulk delete in Products.
 
 ## Not built yet
 

@@ -314,3 +314,5 @@ header,nav button{color:#fff}
 nav button.on{background:#fff;color:#0f5c4d}
 
 .bq{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}.bq label{display:inline;margin:0;font-weight:600}.bq input{width:84px;flex:none}.bq button{min-width:48px}
+
+#bulk input{width:auto;flex:1 1 220px;max-width:360px}

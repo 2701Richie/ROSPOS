@@ -10,6 +10,7 @@ function load(file,extra){
  vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'js',file),'utf8'),ctx);return{ctx,el};
 }
 const run=(h,code)=>vm.runInContext(code,h.ctx);
+const pending=[];
 const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
 
 // ---- Reorder: zero-stock products always appear ----
@@ -44,6 +45,34 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  h.el('.bq').onclick({target:{closest:()=>({dataset:{bq:'10'}})}});ok(h.el('#bq').value==='10','sell: quick button 10 sets the quantity');
 }
 
+// ---- Products: bulk delete selection ----
+pending.push((async()=>{
+ const calls=[];let reply={msg:'Deleted 2 products.'},yes=true;
+ const prods=[{id:1,n:'Alpha',p:1,s:1,e:'',m:0},{id:2,n:'Beta',p:1,s:1,e:'',m:0},{id:3,n:'Gamma',p:1,s:1,e:'',m:0}];
+ const h=load('products.js',{S:{p:prods.slice(),s:[],g:[]},api:async(p,b)=>{calls.push([p,b]);return reply},fail:(r,e)=>{e.textContent=r.error},
+  clampCart(){},drawGrid(){},drawLines(){},confirm:()=>yes});
+ const tick=()=>new Promise(r=>setTimeout(r,0));
+ const box=(id,checked)=>({target:{closest:()=>({dataset:{id:String(id)},checked})}});
+ run(h,'drawProd()');ok(h.el('#bulk').hidden===true,'products: bulk bar hidden while nothing is selected');
+ h.el('#pt').onchange(box(1,true));h.el('#pt').onchange(box(3,true));
+ ok(h.el('#bulk').hidden===false&&h.el('#bn').textContent==='2 selected','products: ticking products shows the bar with the count');
+ h.el('#pall').onchange({target:{checked:true}});ok(h.el('#bn').textContent==='3 selected'&&h.el('#pall').checked===true,'products: select all ticks every shown product');
+ h.el('#pall').onchange({target:{checked:false}});ok(h.el('#bulk').hidden===true,'products: untick select all clears the shown selection');
+ h.el('#ps').value='alp';h.el('#pall').onchange({target:{checked:true}});
+ ok(h.el('#bn').textContent==='1 selected','products: select all only ticks the products matching the search');
+ h.el('#ps').oninput();ok(h.el('#bulk').hidden===true,'products: changing the search clears the selection (hidden rows can never be deleted unseen)');
+ h.el('#ps').value='';h.el('#pt').onchange(box(1,true));h.el('#pt').onchange(box(2,true));
+ h.el('#bwhy').value='';h.el('#bdel').onclick();await tick();
+ ok(calls.length===0&&/reason/i.test(h.el('#rm').textContent),'products: delete needs a reason, nothing is sent without one');
+ h.el('#bwhy').value='old stock';yes=false;h.el('#bdel').onclick();await tick();
+ ok(calls.length===0,'products: declining the confirmation sends nothing');
+ yes=true;reply={error:'Your account is not allowed to do this.'};h.el('#bdel').onclick();await tick();
+ ok(calls.length===1&&calls[0][0]==='/api/delete-many'&&JSON.stringify(calls[0][1])===JSON.stringify({ids:[1,2],why:'old stock'}),'products: confirmed delete sends the selected ids and the reason to /api/delete-many');
+ ok(h.el('#rm').textContent===reply.error&&run(h,'sel.size')===2,'products: a refused request shows the error and keeps the selection');
+ reply={msg:'Deleted 2 products.'};h.el('#bdel').onclick();await tick();
+ ok(h.el('#rm').textContent==='Deleted 2 products.'&&run(h,'sel.size')===0&&h.el('#bwhy').value==='','products: after success the message shows and the selection and reason are cleared');
+})());
+
 // ---- Full screen button ----
 {
  const noFs=load('fullscreen.js',{document:{documentElement:{},addEventListener(){}}});
@@ -59,4 +88,4 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  doc.fullscreenElement=null;ls.fullscreenchange();ok(h.el('#fsb').textContent==='Full screen','fullscreen: label returns to Full screen');
 }
 
-process.exit(bad?1:0);
+Promise.all(pending).then(()=>process.exit(bad?1:0),e=>{console.log('FAIL test crashed: '+e);process.exit(1)});
