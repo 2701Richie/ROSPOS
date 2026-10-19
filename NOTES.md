@@ -30,7 +30,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 
 **Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/run.py` once at the end, not after every edit.
 
-**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Queued, not started: in-app updater (owner only, safety backup first); see "Not built yet" below.
+**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Queued, not started: in-app updater (owner only, safety backup first); see "Roadmap" below.
 
 ## Files
 
@@ -100,6 +100,25 @@ Errors come back as `{error}`.
 1. Find the screen: edit its one `js/*.js` file (and `index.html` / `style.css` if needed).
 2. If it changes data, add or edit one `r_*` function and a line in `ROUTES` in `server.py`. Validate everything on the server.
 3. Update this file's data shapes, endpoints, or rules if they changed.
+
+## Roadmap (planned, none of this is built; order = suggested build order, owner picks)
+
+Each feature gets: its own small commit, a test in `tests/`, and a line in NOTES. CSV bulk add/edit already exists (`js/import.js`); the items below are new.
+
+| # | Feature | Size | Touches | Notes and risks |
+|---|---|---|---|---|
+| 1 | Zero-quantity items always in the Reorder list | tiny | `js/reorder.js` | Show stock 0 items first, even without a reorder level. |
+| 2 | Full-screen button | tiny | `index.html`, `js/core.js`, `style.css` | Browser Fullscreen API; hide where unsupported (some phones). |
+| 3 | Bulk quantity on Sell (add 5 or 10 at once) | small | `js/sell.js` | Typed quantity or +5/+10 buttons; must respect stock limit and `MAX_NUM`. |
+| 4 | Bulk delete in Products (manager and owner only) | small | `js/products.js`, `server.py` (new `r_delete_many`) | Owner PIN, one audit row per item, snapshot first, all-or-nothing. Sold items keep their sale lines. |
+| 5 | Cost field on products | medium | `server.py` (`r_product`, import, restore validation), `js/products.js`, `js/import.js` | New field `c` (cost per unit, optional, 0 = unknown). CSV column optional so old files still import. Needed by 6. |
+| 6 | Reports: total inventory cost and estimated replenishment cost | medium | `js/reports.js` | Needs 5. Replenishment = (reorder level - stock) x cost for low items; show "cost unknown" count. |
+| 7 | In-app updater (owner only) | large | `server.py`, `js/settings.js`, `install-*.sh` | Safety backup first, run `tests/run.py` on the new code before switching, keep previous version for one-click rollback. Decide method first: git pull or uploaded zip. Never restart without owner confirming. |
+| 8 | Remote access to the store laptop | infra | outside the repo | For updates and fixes. Prefer a private tunnel (no open router ports) plus the existing login. Decide tool before building. |
+| 9 | Sections, printable count sheets, manager "check counts" screen, differences report | large | new `js/counts.js`, `server.py`, `index.html`, `style.css` | Counting stays manual; staff assigned to sections. Build in this order: sections on products, count sheets, check-counts screen, differences report. |
+| 10 | Later | n/a | n/a | Write-offs, daily comparison with the official POS, batch numbers, HTTPS and a sturdier web server. |
+
+Dependencies: 6 needs 5. 7 needs the test runner (done). 9 is easier after the `server.py` split is decided.
 
 ## Not built yet
 
