@@ -77,12 +77,13 @@ def check_js(tests, src):
         p += rc == 0
         if rc:
             fails.append("FAIL syntax %s: %s" % (os.path.basename(f), text.strip().splitlines()[0] if text.strip() else rc))
-    theme = os.path.join(tests, "theme_test.js")
-    if os.path.isfile(theme):
-        rc, text = sh(["node", theme, src], timeout=30)
-        texts.append(text)
-        a, b, f = ok_fail(rc, text)
-        p, t, fails = p + a, t + b, fails + f
+    for name in ("theme_test.js", "js_logic_test.js"):
+        script = os.path.join(tests, name)
+        if os.path.isfile(script):
+            rc, text = sh(["node", script, src], timeout=30)
+            texts.append(text)
+            a, b, f = ok_fail(rc, text)
+            p, t, fails = p + a, t + b, fails + f
     return p, t, fails, "\n".join(texts)
 
 

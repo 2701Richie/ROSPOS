@@ -3,8 +3,8 @@ let rQ={},rX={};
 function margin(){try{const v=parseFloat(localStorage.getItem('pos-margin'));return isNaN(v)?25:v}catch(e){return 25}}
 function sug(p){return Math.max(1,2*p.m-p.s)}
 function sold30(){const d=new Date(T+'T00:00:00');d.setDate(d.getDate()-30);const from=d.toLocaleDateString('en-CA'),m={};S.s.forEach(s=>{if(s.v||s.d<from)return;s.l.forEach(l=>{const k=l.id||l.n;m[k]=(m[k]||0)+l.q})});return m}
-function lists(){const mg=margin()/100,sold=sold30(),by=(a,b)=>a.r-b.r||a.p.n.localeCompare(b.p.n),all=S.p.filter(p=>p.m>0).map(p=>({p,r:p.s/p.m,sold:(sold[p.id]||0)+(sold[p.n]||0)}));
-return{now:all.filter(x=>x.p.s<=x.p.m).sort(by),low:all.filter(x=>x.p.s>x.p.m&&x.p.s<=x.p.m*(1+mg)).sort(by),none:S.p.filter(p=>!(p.m>0)).length}}
+function lists(){const mg=margin()/100,sold=sold30(),by=(a,b)=>a.r-b.r||a.p.n.localeCompare(b.p.n),all=S.p.filter(p=>p.m>0||p.s===0).map(p=>({p,r:p.m>0?p.s/p.m:-1,sold:(sold[p.id]||0)+(sold[p.n]||0)}));
+return{now:all.filter(x=>x.p.s<=x.p.m).sort(by),low:all.filter(x=>x.p.s>x.p.m&&x.p.s<=x.p.m*(1+mg)).sort(by),none:S.p.filter(p=>!(p.m>0)&&p.s>0).length}}
 function badge(){const b=$('#rdrb');if(!b)return;const n=lists().now.length;b.textContent=n?'Reorder ('+n+')':'Reorder'}
 function rrow(x,isNow){const p=x.p,q=rQ[p.id]??sug(p),inc=rX[p.id]??isNow;return`<tr><td><input type="checkbox" class="ri" data-id="${p.id}"${inc?' checked':''} aria-label="Include ${esc(p.n)} in the order"></td><td>${esc(p.n)}${p.s<=0?' <span class="tag b">Out of stock</span>':''}</td><td>${p.s}</td><td>${p.m}</td><td>${x.sold}</td><td><input class="rn" data-id="${p.id}" inputmode="numeric" value="${q}" style="width:84px" aria-label="Order quantity for ${esc(p.n)}"></td></tr>`}
 function drawRdr(){const l=lists(),t=(rows,n)=>rows.length?rows.map(x=>rrow(x,n)).join(''):'<tr><td colspan="6" class="mu">Nothing here.</td></tr>';
