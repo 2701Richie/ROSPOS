@@ -147,7 +147,9 @@ def archive_old():
     return len(old_sales)
 
 
-SETTING_DEFAULTS = {"store": "", "session_hours": None, "backup_days": 30}
+SETTING_DEFAULTS = {"store": "", "session_hours": None, "backup_days": 30,
+                    "rc_addr": "", "rc_phone": "", "rc_tag": "", "rc_foot": ""}  # rc_*: lines printed on the 58 mm receipt
+RC_LIMITS = {"rc_addr": 64, "rc_phone": 32, "rc_tag": 40, "rc_foot": 64}  # max characters per receipt field
 
 
 def settings():
@@ -783,7 +785,8 @@ def r_import(b, ip):
     return {"plan": plan}
 
 
-SETTING_LABELS = {"store": "Store name", "session_hours": "Stay signed in (hours)", "backup_days": "Backup days kept"}
+SETTING_LABELS = {"store": "Store name", "session_hours": "Stay signed in (hours)", "backup_days": "Backup days kept",
+                  "rc_addr": "Receipt address", "rc_phone": "Receipt phone", "rc_tag": "Receipt tagline", "rc_foot": "Receipt footer message"}
 
 
 def shown(v):
@@ -807,7 +810,14 @@ def r_settings(b, ip):
         raise Err(400, "Stay signed in must be between 1 and 72 hours.")
     if not 7 <= days <= 365:
         raise Err(400, "Keep between 7 and 365 days of backups.")
-    new = {"store": store, "session_hours": hrs, "backup_days": days}
+    rc = {}
+    for k, mx in RC_LIMITS.items():
+        if k in b and not isinstance(b[k], str):
+            raise Err(400, "%s must be text." % SETTING_LABELS[k])
+        rc[k] = " ".join(b[k].split()) if k in b else cur[k]  # a request without the field keeps the saved value
+        if len(rc[k]) > mx:
+            raise Err(400, "%s must be %d characters or fewer." % (SETTING_LABELS[k], mx))
+    new = dict({"store": store, "session_hours": hrs, "backup_days": days}, **rc)
     changed = [k for k in new if new[k] != cur[k]]
     if changed:
         put("settings", new)

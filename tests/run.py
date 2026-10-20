@@ -125,7 +125,7 @@ def main():
     tests = os.path.join(src, "tests") if os.path.isfile(os.path.join(src, "tests", "numeric_validation_test.py")) else HERE
     before = snapshot(src) if not a.clone else {}
     results = [("numeric", check_numeric(tests, src))]
-    for name, fn in (("e2e", "e2e.py"), ("archive", "archive_test.py"), ("bulk", "bulk_delete_test.py"), ("cost", "cost_test.py")):
+    for name, fn in (("e2e", "e2e.py"), ("archive", "archive_test.py"), ("bulk", "bulk_delete_test.py"), ("cost", "cost_test.py"), ("receipt", "receipt_settings_test.py")):
         r = check_script(tests, src, fn)
         if r:
             results.append((name, r))
