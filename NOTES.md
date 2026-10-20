@@ -23,14 +23,14 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 **Run the tests (one command, prints one line, then only failures):**
 - `python3 tests/run.py` tests the working tree including uncommitted edits.
 - `python3 tests/run.py --clone` clones GitHub and tests that (run it after every push).
-- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
+- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/receipt_settings_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
 - Add a test for every new rule: put `ok   ...` / `FAIL ...` lines in a new `tests/*_test.py` and add its name to `run.py`.
 
 **Screenshots (only for visual work):** the harness lives outside the repo, in `pos-tests/demo` next to the project folder. `bash pos-tests/demo/shoot.sh` copies the front-end, injects fake data (`demo.js`), serves it on port 8077 and saves PNGs in `/tmp/shots` with headless chromium. URL knobs: `?tab=sell|live|rep|set|receipt&taps=0|1|2` (taps = theme button presses). Look at one image, not all.
 
 **Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/run.py` once at the end, not after every edit.
 
-**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Built and committed locally (not pushed): zero-stock items in Reorder, Full screen button, typed quantity on Sell cart lines, bulk delete in Products, cost field with cost reports (cost visible to managers and owners only). Queued, not started: in-app updater (owner only, safety backup first); see "Roadmap" below.
+**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Built and committed locally (not pushed): zero-stock items in Reorder, Full screen button, typed quantity on Sell cart lines, bulk delete in Products, cost field with cost reports (cost visible to managers and owners only), redesigned 58 mm receipt with direct RawBT printing (printer not yet tested on the real device; RawBT showed a "WRC error" before). Queued, not started: in-app updater (owner only, safety backup first); see "Roadmap" below.
 
 ## Files
 
@@ -43,13 +43,14 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
 | `js/core.js` | Shared state `S`, helpers (`R`, `M`, `esc`, `tags`), `api()`, `load()`, `show(tab)`, sign-in screen and role checks (`can()`) |
-| `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`, `setQty` typed quantity on a cart line), checkout (`#pay`), `receipt()` popup, `clampCart` |
+| `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`, `setQty` typed quantity on a cart line), checkout (`#pay`), `clampCart` |
 | `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, Cost box and Cost column, tick boxes with bulk delete (`sel`), stock log with who made each change |
 | `js/accounts.js` | Accounts tab (owner): add accounts, roles, reset password, disable |
-| `js/settings.js` | Settings tab (owner): store name, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt, and the theme button in the header (every role, this device only: Automatic, Light, Dark; saved in the browser as `pos-theme`, applied early by a script in `index.html`) |
+| `js/settings.js` | Settings tab (owner): store name, receipt address/phone/tagline/footer with a live receipt preview and Test slip, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt, and the theme button in the header (every role, this device only: Automatic, Light, Dark; saved in the browser as `pos-theme`, applied early by a script in `index.html`) |
 | `js/import.js` | CSV import (preview, apply; optional `cost` column), export products, download template. Parsing happens in the browser, rules in `r_import` |
 | `js/reports.js` | Reports tab: today's totals, cost cards (`costStats`, `drawCost`), alerts, recent sales, backup show/restore |
 | `js/reorder.js` | Reorder tab: reorder-now and getting-low lists, editable order quantities, print/PDF and CSV order list. Products with zero stock always appear. Client only, no server change |
+| `js/receipt.js` | 58 mm receipt: `rcptBlocks` (one model), `rcptText`, `rcptBytes` (ESC/POS), `rcptUrl` (RawBT link), `rcptHtml` (on-screen slip), `rcptSend`, `rcptPopup`, `receipt()`, `rcptTestBlocks` |
 | `js/receipts.js` | Receipts tab: sale list, view, password-protected void and change popups |
 | `js/livesales.js` | Live Sales tab: today's sales as a newest-first feed (tap a row for items; filters by status and cashier; new sales highlight briefly) plus a "sold today by product" tally with search. Refreshed every 5 seconds from `/api/state`. Client only |
 | `js/fullscreen.js` | Full-screen button in the header (hidden where the browser cannot) |
@@ -79,7 +80,7 @@ Sessions use an HttpOnly cookie (`pos_session`, SameSite=Strict, 12 hours, `POS_
 | `/api/void`, `/api/change` | manager and up, plus `password` of the signed-in user in the request | Void or amend a sale |
 | `/api/restore` | owner, plus `password` | Restore a backup |
 | `/api/users`, `/api/user` | owner | List, add, edit, disable accounts (always one active owner) |
-| `/api/settings` | owner (re-enter password) | Save store name, stay-signed-in hours (1 to 72), backup days kept (7 to 365). Stored in the `kv` table under `settings`, outside the sales data so a restore never changes them. Each change is written to the activity log as product "Settings". Sent to every client as `S.cfg` |
+| `/api/settings` | owner (re-enter password) | Save store name, receipt fields `rc_addr` (64), `rc_phone` (32), `rc_tag` (40), `rc_foot` (64 characters max; a request without them keeps the saved values), stay-signed-in hours (1 to 72), backup days kept (7 to 365). Stored in the `kv` table under `settings`, outside the sales data so a restore never changes them. Each change is written to the activity log as product "Settings". Sent to every client as `S.cfg` |
 | `/api/mypassword` | signed in | Change own password (`old`, `new`) |
 
 Errors come back as `{error}`.
@@ -94,6 +95,7 @@ Errors come back as `{error}`.
 - Sell tab cart: the number on each line is a box. Type a quantity and leave the box (or press Enter): more than the stock sets the maximum, 0 or blank removes the line, text or a negative number keeps the old quantity. The 15-second refresh skips while a quantity box is focused.
 - Reorder tab: products with zero stock always appear in "Reorder now", even with no reorder level (default order quantity 1).
 - Full screen button in the header toggles browser full screen; it hides itself where the browser cannot do it.
+- Receipt (58 mm roll, 32 columns): plain ASCII only (peso sign prints as PHP, accents dropped) because cheap 58 mm printers cannot print them. Tablets (Android) send ESC/POS text straight to RawBT with an `intent:base64,...;scheme=rawbt;package=ru.a402d.rawbtprinter` link; computers and the Print (browser) button use the browser print dialog with `@page 58mm`. The sale is saved before printing, so a failed print never loses a sale; Reprint is in Receipts. No QR, barcode or logo is printed (printer support varies, and pictures are heavy over BLE). Settings > Test slip prints a 32-column ruler to check a printer. RawBT's virtual printer can show the slip without a real printer. Footer always ends with "Not an official receipt".
 - Bulk delete (Products tab): tick products, give one reason, confirm. Search changes clear the selection, so hidden products can never be deleted unseen. Old receipts keep their items.
 - Sales are never deleted. Void returns stock and keeps the sale marked void. Change edits quantities and cash.
 - Live state keeps about 7 days of sales and audit rows (`POS_HOT_DAYS`, default 7). Older rows are moved automatically (on startup and hourly) into `archives/sales-YYYY-MM-DD.json` (format `ROSPOS-day-archive`). Receipts, voids, changes, Live Sales and Reports only see the live week; open the archive file to read an older day. Sale numbers keep increasing via `sale_seq` so archiving never reuses a number.

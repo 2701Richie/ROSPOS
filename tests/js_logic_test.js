@@ -135,4 +135,60 @@ pending.push((async()=>{
  h.el('#it').onclick();ok(lines(blobs[1])[0]==='name,price,reorder,quantity,cost','cost csv: template has a cost column');
 }
 
+// ---- Receipt: 58 mm layout, plain characters, RawBT bytes ----
+{
+ const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ const full={store:'3B Pharmacy',rc_addr:'12 Main St, Davao City',rc_phone:'0912 345 6789',rc_tag:'Your health partner',rc_foot:'Thank you!'};
+ let prints=0,cur=full;
+ const h=load('receipt.js',{cfg:()=>cur,esc,btoa:t=>Buffer.from(t,'binary').toString('base64'),navigator:{userAgent:'Mozilla/5.0 (Linux; Android 13)'}});
+ h.ctx.document={createElement:()=>({}),head:{appendChild(){}},querySelector:s=>h.el(s)};
+ h.ctx.window={location:{href:''},print(){prints++},addEventListener(){}};
+ const base={no:7,d:'2026-10-19',t:'10:42 AM',by:'Maria',l:[{n:'Paracetamol 500mg',q:2,p:5.5}],tot:11,cash:20};
+ const longName='Extra Strength Paracetamol 500mg Tablets Box of 100 Pieces Special Pack';
+ const sales={
+  base,
+  long:Object.assign({},base,{l:[{n:longName,q:3,p:1234.5},{n:'Supercalifragilisticexpialidocious_Antidisestablishmentarianism_X',q:1,p:10},{n:'Ni\u00f1o \u20b1\u00f1land\u00fa \u00c1cido \u201cquoted\u201d \u2013 dash',q:12,p:0.5}],tot:3719.5,cash:4000}),
+  many:Object.assign({},base,{l:Array.from({length:100},(_,i)=>({n:'Item '+(i+1),q:1,p:1.25})),tot:125,cash:125}),
+  big:Object.assign({},base,{l:[{n:'Big',q:1,p:1234567.89}],tot:1234567.89,cash:2000000}),
+  noby:Object.assign({},base,{by:''}),
+  discount:Object.assign({},base,{sub:12,dc:2.4,dl:'Senior 20%',tot:9.6,cash:10}),
+  voided:Object.assign({},base,{v:{d:'2026-10-19'}}),amended:Object.assign({},base,{h:[{d:'2026-10-19'}]})};
+ const cfgs={full,empty:{},long:{store:'S'.repeat(40),rc_addr:'123 Very Long Street Name Avenue, Barangay Somewhere, Davao City 8000',rc_phone:'0912 345 6789 / 0917 111 2222 / 082 555 1234',rc_tag:'The best prices and the friendliest service in town',rc_foot:'Thank you very much for shopping with us, please come again soon'},name20:{store:'Rosario Family Pharmacy'}};
+ const blocks=(s,c)=>{cur=c;return Array.from(run(h,'rcptBlocks('+JSON.stringify(s)+')'))};
+ const ascii=t=>/^[\x20-\x7e]*$/.test(t);
+ const fits=bl=>bl.every(b=>ascii(b.t)&&b.t.length<=(b.s===2?16:32)&&run(h,'rcLine('+JSON.stringify(b)+')').length<=(b.s===2?16:32));
+ const valid=by=>{const a=Array.from(by);let i=0;if(a[0]!==0x1b||a[1]!==0x40)return false;while(i<a.length){const c=a[i];if(c===0x1b){if(![0x40,0x61,0x45,0x64].includes(a[i+1]))return false;i+=a[i+1]===0x40?2:3}else if(c===0x1d){if(a[i+1]!==0x21)return false;i+=3}else if(c===0x0a||(c>=0x20&&c<=0x7e))i++;else return false}return true};
+ let allFit=true,allValid=true,count=0;for(const sk in sales)for(const ck in cfgs){const bl=blocks(sales[sk],cfgs[ck]);count++;if(!fits(bl))allFit=false;if(!valid(run(h,'rcptBytes('+JSON.stringify(bl)+')')))allValid=false}
+ ok(allFit,'receipt: every line fits 32 columns (16 for double-size) and uses plain characters, in '+count+' sale and settings combinations');
+ ok(allValid,'receipt: bytes are only plain text plus the five printer commands we use (init, align, bold, size, feed)');
+ for(const n of [longName,'Supercalifragilisticexpialidocious_Antidisestablishmentarianism_X','Ni\u00f1o \u20b1\u00f1land\u00fa','a b  c']){
+  const w=Array.from(run(h,'rcWrap('+JSON.stringify(n)+',32)')),p=run(h,'rcPlain('+JSON.stringify(n)+')');
+  ok(w.join('').replace(/ /g,'')===p.replace(/ /g,'')&&w.every(x=>x.length<=32),'receipt: wrapping loses no characters ('+p.slice(0,24)+'...)')}
+ ok(run(h,'rcPlain("\\u20b1 \\u00c1\\u00f1o \\u201cx\\u201d \\u4e2d")')==='PHP Ano "x" ?','receipt: peso sign, accents and quotes become plain characters, unknown symbols become ?');
+ const amt=t=>parseFloat(t.trim().split(/\s+/).pop().replace(/,/g,''));
+ for(const k of ['base','long','many','big']){const bl=blocks(sales[k],full),tot=bl.find(b=>b.t.startsWith('TOTAL')),items=bl.filter(b=>/^ +\d+ x [\d,.]+ +[\d,.]+$/.test(b.t));
+  ok(tot&&amt(tot.t)===sales[k].tot&&Math.abs(items.reduce((a,b)=>a+amt(b.t),0)-sales[k].tot)<0.006&&items.length===sales[k].l.length,'receipt: '+k+' sale: TOTAL equals the sum of the printed item amounts ('+items.length+' items)')}
+ const dbl=blocks(sales.base,full);ok(dbl.find(b=>b.t.startsWith('TOTAL')).s===1&&dbl.find(b=>b.t.startsWith('TOTAL')).b===true,'receipt: TOTAL is bold and double height');
+ ok(blocks(sales.base,{store:'3B Pharmacy'})[0].s===2&&blocks(sales.base,{store:'Rosario Family Pharmacy'})[0].s===1&&blocks(sales.base,{store:'S'.repeat(40)})[0].s===0,'receipt: store name is double size when short, double height when medium, normal bold when long');
+ const txt=bl=>Array.from(bl).map(b=>b.t).join('\n');
+ ok(/12 Main St/.test(txt(blocks(sales.base,full)))&&/0912 345 6789/.test(txt(blocks(sales.base,full)))&&/Your health partner/.test(txt(blocks(sales.base,full)))&&/Thank you!/.test(txt(blocks(sales.base,full))),'receipt: address, phone, tagline and footer are printed when set');
+ const e=blocks(sales.base,{});ok(e[0].t==='ROSPOS'&&!e.some(b=>b.t==='')&&/Thank you for your purchase!/.test(txt(e))&&/Not an official receipt/.test(txt(e)),'receipt: with nothing set there are no blank lines, a default footer, and the not-official line');
+ ok(/\*\*\* VOID \*\*\*/.test(txt(blocks(sales.voided,full)))&&/\(AMENDED\)/.test(txt(blocks(sales.amended,full)))&&!/VOID|AMENDED/.test(txt(blocks(sales.base,full))),'receipt: VOID and AMENDED banners only where they apply');
+ ok(/Senior 20%/.test(txt(blocks(sales.discount,full)))&&/Subtotal/.test(txt(blocks(sales.discount,full)))&&!/Cashier/.test(txt(blocks(sales.noby,full))),'receipt: older discount sales keep their discount lines; no cashier line when unknown');
+ const bytes=run(h,'rcptBytes('+JSON.stringify(blocks(sales.many,full))+')');ok(bytes.length<12000,'receipt: a 100-item slip is '+bytes.length+' bytes (small enough for BLE)');
+ const url=run(h,'rcptUrl(rcptBytes('+JSON.stringify(blocks(sales.base,full))+'))'),b64=url.slice('intent:base64,'.length,url.indexOf('#Intent'));
+ ok(url.startsWith('intent:base64,')&&url.endsWith('#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;')&&Buffer.from(b64,'base64').equals(Buffer.from(run(h,'rcptBytes('+JSON.stringify(blocks(sales.base,full))+')'))),'receipt: RawBT link is well formed and decodes back to the same bytes');
+ const ts=Array.from(run(h,'rcptTestBlocks({})')).map(b=>b.t);ok(ts.includes('12345678901234567890123456789012')&&ts.every(ascii),'receipt: test slip has a 32-column ruler and plain characters');
+ ok(run(h,'rcptHtml(rcptBlocks({no:1,d:"d",t:"t",l:[{n:"<b>x</b>&\\"",q:1,p:1}],tot:1,cash:1}))').includes('&lt;b&gt;x&lt;/b&gt;&amp;&quot;')&&!run(h,'rcptHtml(rcptBlocks({no:1,d:"d",t:"t",l:[{n:"<b>x</b>",q:1,p:1}],tot:1,cash:1}))').includes('<b>x'),'receipt: on-screen slip escapes product names (no HTML injection)');
+ ok(run(h,'rcptMode()')==='raw','receipt: Android tablets print directly through RawBT');
+ h.ctx.navigator={userAgent:'Mozilla/5.0 (X11; Linux x86_64)'};ok(run(h,'rcptMode()')==='browser','receipt: computers use browser print');
+ h.ctx.navigator={userAgent:'Android'};
+ const bl=run(h,'rcptBlocks('+JSON.stringify(sales.base)+')');cur=full;
+ run(h,'rcptSend(rcptBlocks('+JSON.stringify(sales.base)+'),"raw")');ok(h.ctx.window.location.href.startsWith('intent:base64,')&&prints===0&&/Sent to RawBT/.test(h.el('#rcm').textContent),'receipt: Print sends the slip to RawBT and tells the user what to do if nothing prints');
+ h.ctx.window.location={set href(v){throw new Error('no handler')}};run(h,'rcptSend(rcptBlocks('+JSON.stringify(sales.base)+'),"raw")');ok(prints===1&&/browser print/.test(h.el('#rcm').textContent),'receipt: if RawBT cannot be reached it falls back to browser print');
+ h.ctx.window.location={href:''};run(h,'receipt('+JSON.stringify(sales.base)+')');ok(/id="prb"/.test(h.el('#rc').innerHTML)&&h.el('#md').hidden===false,'receipt: the popup on a tablet offers Print and Print (browser)');
+ h.el('#pr').onclick();ok(h.ctx.window.location.href.startsWith('intent:base64,'),'receipt: the Print button in the popup sends to RawBT');
+ h.ctx.navigator={userAgent:'X11'};run(h,'receipt('+JSON.stringify(sales.base)+')');ok(!/id="prb"/.test(h.el('#rc').innerHTML),'receipt: the popup on a computer has a single Print button');
+}
+
 Promise.all(pending).then(()=>process.exit(bad?1:0),e=>{console.log('FAIL test crashed: '+e);process.exit(1)});

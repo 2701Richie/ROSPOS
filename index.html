@@ -65,9 +65,10 @@
 </section>
 <section id="v-set" hidden>
 <div class="card"><h2>Settings</h2><p class="mu" style="margin-top:0">Owner only. These are saved in the database, not in the code, and every change is recorded in the activity log.</p>
-<div class="form"><label>Store name<input id="sn" maxlength="60" autocomplete="off" placeholder="Shown in the header, order list and receipts"></label><label>Stay signed in for (hours)<input id="sh" inputmode="decimal"></label><label>Days of backups to keep<input id="sd" inputmode="numeric"></label><label>Your password (to confirm)<input id="sp" type="password" autocomplete="current-password"></label></div>
+<div class="form"><label>Store name<input id="sn" maxlength="60" autocomplete="off" placeholder="Shown in the header, order list and receipts"></label><label>Receipt address<input id="rcad" maxlength="64" autocomplete="off" placeholder="Street, city (printed under the store name)"></label><label>Receipt phone<input id="rcph" maxlength="32" autocomplete="off" placeholder="Phone or mobile number"></label><label>Receipt tagline<input id="rctg" maxlength="40" autocomplete="off" placeholder="Optional short line"></label><label>Receipt footer message<input id="rcft" maxlength="64" autocomplete="off" placeholder="Thank you for your purchase!"></label><label>Stay signed in for (hours)<input id="sh" inputmode="decimal"></label><label>Days of backups to keep<input id="sd" inputmode="numeric"></label><label>Your password (to confirm)<input id="sp" type="password" autocomplete="current-password"></label></div>
 <p class="mu">Sign-in length applies to new sign-ins only. A shorter backup period deletes the older daily backups within the hour.</p>
 <div class="acts"><button class="pri" id="ss">Save settings</button><button id="sr">Undo changes</button></div><div id="sm" class="err" role="status"></div></div>
+<div class="card"><h3>Receipt preview (58 mm paper)</h3><p class="mu" style="margin-top:0">Shows how a slip looks with the receipt fields above, before you save. Use Test slip to check the printer on this device.</p><div id="rcpv"></div><div class="acts"><button id="rctest">Test slip</button></div></div>
 </section>
 <section id="v-rdr" hidden>
 <div class="card"><div style="display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap"><h2 style="margin:0">What to order</h2>
@@ -117,6 +118,7 @@
 <script src="/js/livesales.js"></script>
 <script src="/js/accounts.js"></script>
 <script src="/js/settings.js"></script>
+<script src="/js/receipt.js"></script>
 <script src="/js/fullscreen.js"></script>
 <script src="/js/main.js"></script>
 </body>

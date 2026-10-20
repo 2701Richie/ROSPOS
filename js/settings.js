@@ -1,10 +1,14 @@
 // settings.js: Settings tab (owner only): store name, sign-in length, backup days kept
-function cfg(){return S.cfg||{store:'',session_hours:12,backup_days:30}}
+function cfg(){return S.cfg||{store:'',session_hours:12,backup_days:30,rc_addr:'',rc_phone:'',rc_tag:'',rc_foot:''}}
 function storeName(){return String(cfg().store||'').trim()}
 function applyBrand(){const n=storeName(),sm=document.querySelector('.brand small');if(sm)sm.textContent=n||'PHARMACY POS';document.title=n?n+' — ROSPOS':'ROSPOS — Pharmacy POS'}
-function drawSet(){const c=cfg(),m=$('#sm');$('#sn').value=c.store||'';$('#sh').value=c.session_hours;$('#sd').value=c.backup_days;$('#sp').value='';m.textContent='';m.className='err'}
+function drawSet(){const c=cfg(),m=$('#sm');$('#sn').value=c.store||'';$('#rcad').value=c.rc_addr||'';$('#rcph').value=c.rc_phone||'';$('#rctg').value=c.rc_tag||'';$('#rcft').value=c.rc_foot||'';$('#sh').value=c.session_hours;$('#sd').value=c.backup_days;$('#sp').value='';m.textContent='';m.className='err';drawRcpv()}
+function rcForm(){return{store:$('#sn').value,rc_addr:$('#rcad').value,rc_phone:$('#rcph').value,rc_tag:$('#rctg').value,rc_foot:$('#rcft').value}}
+function drawRcpv(){$('#rcpv').innerHTML=rcptHtml(rcptBlocks({no:1042,d:T,t:'10:42 AM',by:'Maria',l:[{n:'Paracetamol 500mg',q:2,p:5.5},{n:'Vitamin C 500mg',q:1,p:8},{n:'Alcohol 70% 500ml',q:1,p:85}],tot:104,cash:200},rcForm()))}
+['sn','rcad','rcph','rctg','rcft'].forEach(i=>$('#'+i).oninput=drawRcpv);
+$('#rctest').onclick=()=>rcptPopup(rcptTestBlocks(rcForm()));
 $('#sr').onclick=drawSet;
-$('#ss').onclick=async()=>{const m=$('#sm');m.className='err';m.textContent='';const r=await api('/api/settings',{store:$('#sn').value,session_hours:$('#sh').value,backup_days:$('#sd').value,password:$('#sp').value});$('#sp').value='';if(r.error){m.textContent=r.error;return}applyBrand();drawSet();m.className='mu';m.textContent=r.msg||'Saved.'};
+$('#ss').onclick=async()=>{const m=$('#sm');m.className='err';m.textContent='';const r=await api('/api/settings',{store:$('#sn').value,rc_addr:$('#rcad').value,rc_phone:$('#rcph').value,rc_tag:$('#rctg').value,rc_foot:$('#rcft').value,session_hours:$('#sh').value,backup_days:$('#sd').value,password:$('#sp').value});$('#sp').value='';if(r.error){m.textContent=r.error;return}applyBrand();drawSet();m.className='mu';m.textContent=r.msg||'Saved.'};
 $('#sp').onkeydown=e=>{if(e.key==='Enter')$('#ss').click()};
 // Theme button (every role, this device only): Automatic -> Light -> Dark. Saved in the browser, applied early by a script in index.html.
 const THEMES=['auto','light','dark'],TH_ICON={auto:'◐',light:'☀',dark:'☾'},TH_NAME={auto:'Automatic',light:'Light',dark:'Dark'};
