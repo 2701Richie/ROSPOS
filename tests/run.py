@@ -16,7 +16,7 @@ import argparse, glob, os, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", GIT_TERMINAL_PROMPT="0")  # git must fail fast, never wait for a password
 
 
 def sh(cmd, cwd=None, timeout=180):

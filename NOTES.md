@@ -8,6 +8,8 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 
 **Safety:** never touch `data/` or `backups/` (real database), never start, stop or restart the POS server without asking. Tests use temp folders and a temp server on port 8998.
 
+**Pushing:** `origin` uses SSH (`git@github.com:2701Richie/ROSPOS.git`), so `git push origin master` needs no password. Always run it as `GIT_TERMINAL_PROMPT=0 timeout 60 git push origin master` and write the output to a file: if it ever stalls it is waiting for a password, so stop it instead of waiting (a stalled HTTPS push is how this was found). Never put a token in the remote URL or in a file. After every push run `python3 tests/run.py --clone` to prove a fresh copy from GitHub passes.
+
 **Which file for which task** (details in the Files table below):
 
 | Task | Read |
