@@ -137,7 +137,9 @@
   <div id="rmsg" class="err" role="status"></div><div id="rnone" class="mu"></div>
  </div>
  <div class="card reorder-list-card"><div class="reorder-list-heading"><div><h3>Stock to review</h3><p class="mu">Nothing is selected automatically. Search any product and press Add to order, or tick items in the stock review list. Supplier choice does not depend on the cheapest recorded price.</p></div><span id="rrowcount" class="reorder-count"></span></div>
-  <label class="reorder-search-label" for="rSearch">Search products to order<input id="rSearch" type="search" placeholder="Type a product name…" autocomplete="off" aria-label="Search reorder products"></label>
+  <label class="reorder-search-label" for="rSearch">Search products to add<input id="rSearch" type="search" placeholder="Type a product name…" autocomplete="off" aria-label="Search products to add to the order"></label>
+  <div id="rsearchResults" class="reorder-search-results" hidden aria-live="polite"></div>
+  <div class="reorder-list-heading"><div><h3>Selected items to order</h3><p class="mu">Only items added to this order appear below.</p></div></div>
   <div class="wrap reorder-table-wrap"><table class="reorder-table"><thead><tr><th class="reorder-check-col"><span class="sr-only">Include</span></th><th>Product</th><th>Status</th><th>Stock</th><th>Min.</th><th>Sold 30d</th><th>Order qty</th><th>Chosen supplier / price history</th><th>Latest cost</th></tr></thead><tbody id="reorderRows"></tbody></table></div>
  </div>
 </section>
