@@ -25,6 +25,21 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok((run(h,'picked()').find(x=>x.n==='Alpha')||{}).q===1,'reorder: default order quantity for a zero-level product is 1');
 }
 
+// ---- Reorder: search all products and assign selected items to a chosen supplier ----
+{
+ const products=[{id:1,n:'Urgent Item',p:10,s:0,m:3},{id:2,n:'Zinc Tablets',p:12,s:50,m:5}];
+ const h=load('reorder.js',{S:{p:products,s:[],g:[],suppliers:[{id:7,name:'Backup Supplier'}],purchases:[{product_id:1,supplier_id:8,supplier_name:'Cheapest Supplier',unit_cost:2,date:'2026-10-20'}]}});
+ h.el('#rSearch').value='zinc';
+ const visible=run(h,'visibleReorderRows(reorderRows().rows)');
+ ok(visible.length===1&&visible[0].p.n==='Zinc Tablets','reorder: search finds a product even when it is not currently low on stock');
+ h.el('#rSupplier').value='7';run(h,'rX[1]=false;rX[2]=true');
+ const chosen=run(h,'picked()');
+ ok(chosen.length===1&&chosen[0].n==='Zinc Tablets'&&chosen[0].supplier==='Backup Supplier'&&chosen[0].cost==='','reorder: manually selected item is assigned to chosen supplier even without recorded price history');
+ ok(/Backup Supplier/.test(run(h,'rrow({p:S.p[1],sold:0,price:null})')),'reorder: selected supplier is shown even when its price is unknown');
+ h.el('#rSearch').value='';
+ ok(run(h,'picked()').some(x=>x.n==='Zinc Tablets'),'reorder: ticking an item persists when search is cleared');
+}
+
 // ---- Sell: type the quantity on a cart line ----
 {
  const h=load('sell.js',{S:{p:[{id:1,n:'Alpha',p:2,s:12,e:'',m:0},{id:2,n:'Old',p:2,s:5,e:'2020-01-01',m:0}],s:[],g:[]}});
