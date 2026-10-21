@@ -21,7 +21,13 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(names(L.low)==='','reorder: well-stocked product is not listed');
  ok(L.none===1,'reorder: only products with stock and no reorder level are reported as never appearing (%s)'.replace('%s',L.none));
  run(h,'badge()');ok(h.el('#rdrb').textContent==='Reorder (2)','reorder: tab badge counts zero-stock items');
- ok(names(run(h,'picked()'))==='Alpha,Beta,Delta,Gamma','reorder: All suppliers includes every product by default');
+ ok(names(run(h,'picked()'))==='Alpha,Gamma','reorder: All suppliers selects only products at or below minimum stock by default');
+ ok(run(h,'picked()').every(x=>['Alpha','Gamma'].includes(x.n)),'reorder: adequately stocked products are excluded from the default order');
+ ok(!/checked/.test(run(h,'rrow({p:S.p[1],sold:0,price:null})')),'reorder: adequately stocked product checkbox starts unchecked');
+ run(h,'drawRdr()');
+ ok(/Alpha/.test(h.el('#reorderRows').innerHTML)&&/Gamma/.test(h.el('#reorderRows').innerHTML)&&!/Beta|Delta/.test(h.el('#reorderRows').innerHTML),'reorder: All suppliers table displays only items that need restocking');
+ h.el('#rSearch').value='delta';run(h,'drawRdr()');
+ ok(!/Delta/.test(h.el('#reorderRows').innerHTML),'reorder: All suppliers search cannot add adequately stocked products to the reorder list');
  ok(run(h,'sug(S.p[0])')===1,'reorder: default order quantity for a zero-level product is 1');
 }
 
