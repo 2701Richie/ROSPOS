@@ -78,7 +78,7 @@ ok(rejects([1, 99], code=404) and not srv.S["g"], "B3 one unknown id: refused, n
 fresh()
 ok(rejects([1], "", code=400) and rejects([1], "   ", code=400), "B4 blank reason refused")
 fresh()
-ok(all(rejects(v, code=400) for v in ("1,2", None, 5, {"a": 1}, [], list(range(1, 1002)))), "B5 not a list, empty list or over 1000 ids refused")
+ok(all(rejects(v, code=400) for v in ("1,2", None, 5, {"a": 1}, [], list(range(1, 100002)))), "B5 not a list, empty list or over 100000 ids refused")
 ok(all(rejects(v, code=400) for v in ([True], ["1"], [1.5], [None], [[1]], [1, "x"])), "B6 booleans, text, decimals and nulls refused")
 ok(rejects([-1]) and rejects([0]), "B6 negative and zero ids refused")
 
@@ -94,7 +94,12 @@ ok(ids() == [2, 3, 4, 5] and r.get("msg") == "Deleted 1 product.", "B7 owner can
 fresh()
 call([1, 2, 3, 4, 5])
 ok(ids() == [], "B8 every product can be deleted at once")
-ok(call.__name__ == "call" and "/api/delete-many" in srv.ROUTES and srv.ROUTES["/api/delete-many"] is srv.r_delete_many, "B9 route /api/delete-many is registered")
+# Regression: deleting the entire catalog must work above the former 1000-ID cap.
+srv.S = {"p": [{"id": i, "n": "P%d" % i, "p": 1.0, "s": 0, "e": "", "m": 0} for i in range(1, 1002)], "s": [], "g": []}
+srv.ACTOR = actor("manager")
+r = call(list(range(1, 1002)))
+ok(not srv.S["p"] and r.get("msg") == "Deleted 1001 products.", "B9 entire catalog of 1001 products can be deleted")
+ok(call.__name__ == "call" and "/api/delete-many" in srv.ROUTES and srv.ROUTES["/api/delete-many"] is srv.r_delete_many, "B10 route /api/delete-many is registered")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print("FAILED %d" % bad if bad else "ALL PASSED")

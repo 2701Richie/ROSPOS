@@ -505,8 +505,8 @@ def r_delete_many(b, ip):
     """Delete several products at once (manager and owner). All or nothing; one audit row per product; sales history is kept."""
     allow("manager")
     ids = b.get("ids")
-    if not isinstance(ids, list) or not 1 <= len(ids) <= 1000:
-        raise Err(400, "Select between 1 and 1000 products to delete.")
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 100000:
+        raise Err(400, "Select between 1 and 100000 products to delete.")
     if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
         raise Err(400, "The selection is not valid.")
     why = str(b.get("why", "")).strip()
