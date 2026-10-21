@@ -62,6 +62,8 @@ stock0 = a["s"]
 s1 = srv.r_sale({"lines": [{"id": a["id"], "q": 2}], "rid": "retry-token-0001"}, "t")["sale"]
 s2 = srv.r_sale({"lines": [{"id": a["id"], "q": 2}], "rid": "retry-token-0001"}, "t")["sale"]
 ok(s1["no"] == s2["no"] and a["s"] == stock0 - 2 and len(srv.S["s"]) == 1, "B14 a retried sale request returns the same sale and takes stock once")
+key = srv.db.execute("select sale_no from sale_requests where user_id=? and request_id=?", (staff["id"], "retry-token-0001")).fetchone()
+ok(key and key[0] == s1["no"], "B14a payment request ID is persisted with the sale for restart-safe retries")
 s3 = srv.r_sale({"lines": [{"id": a["id"], "q": 1}], "rid": "retry-token-0002"}, "t")["sale"]
 ok(s3["no"] != s1["no"] and a["s"] == stock0 - 3, "B15 a new request id makes a new sale")
 ok(err_code(srv.r_sale, {"lines": [{"id": a["id"], "q": 1}], "rid": 5}, "t") == 400, "B16 a malformed request id is refused")

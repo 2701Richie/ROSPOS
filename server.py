@@ -46,6 +46,7 @@ db.execute("""create table if not exists audit_events(
 db.execute("create index if not exists audit_events_ts on audit_events(ts desc, id desc)")
 db.execute("create index if not exists audit_events_category_ts on audit_events(category, ts desc, id desc)")
 db.execute("create index if not exists audit_events_operation on audit_events(operation_id)")
+db.execute("create table if not exists sale_requests (user_id integer not null, request_id text not null, sale_no integer not null, primary key(user_id, request_id))")
 db.commit()
 PENDING_AUDIT_EVENTS = []
 
@@ -67,19 +68,25 @@ S.setdefault("purchases", [])
 S.setdefault("suppliers", [])
 
 
+PENDING_SALE_REQUEST = None  # (user id, request id, sale number), persisted atomically with the sale
+
+
 def save():
-    """Persist current POS state and queued audit events in the same SQLite transaction."""
-    global PENDING_AUDIT_EVENTS
+    """Persist current POS state, queued audit events, and a payment request key atomically."""
+    global PENDING_AUDIT_EVENTS, PENDING_SALE_REQUEST
     pending = PENDING_AUDIT_EVENTS[:]
     try:
         db.execute("begin immediate")
         db.execute("insert or replace into kv(k,v) values(?,?)", ("state", json.dumps(S)))
+        if PENDING_SALE_REQUEST is not None:
+            db.execute("insert into sale_requests(user_id,request_id,sale_no) values(?,?,?)", PENDING_SALE_REQUEST)
         if pending:
             db.executemany("""insert or ignore into audit_events
                 (ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key)
                 values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", pending)
         db.commit()
         del PENDING_AUDIT_EVENTS[:len(pending)]
+        PENDING_SALE_REQUEST = None
     except Exception:
         db.rollback()
         raise
@@ -562,9 +569,6 @@ def session_user(handler):
 
 
 # ---- operations (each one runs under LOCK and changes nothing if it fails) ---
-RECENT_SALES = {}  # (user id, request id) -> sale no; lets a retried request return the sale already recorded
-
-
 def sale_out(sale):
     return {"sale": sale if can_see_cost() else dict(sale, l=[no_cost(l) for l in sale["l"]])}
 
@@ -574,11 +578,12 @@ def r_sale(b, ip):
     if rid is not None:
         if not isinstance(rid, str) or not 8 <= len(rid) <= 64:
             raise Err(400, "Bad request.")
-        prior = RECENT_SALES.get((ACTOR["id"], rid))
+        prior = db.execute("select sale_no from sale_requests where user_id=? and request_id=?", (ACTOR["id"], rid)).fetchone()
         if prior is not None:
-            done = next((x for x in S["s"] if x.get("no") == prior), None)
+            done = next((x for x in S["s"] if x.get("no") == prior[0]), None)
             if done:
                 return sale_out(done)
+            raise Err(409, "This payment was already recorded. Check Receipts before trying again.")
     agg = {}
     for l in b.get("lines") or []:
         q = l.get("q")
@@ -617,11 +622,14 @@ def r_sale(b, ip):
     queue_event("sales", "Sale completed", entity_type="sale", entity_id=sale_no,
                 entity_name="Receipt #%s" % sale_no, operation_id="sale-%s" % sale_no,
                 new_value=tot, details={"sale": sale}, source_key=_sale_source_key(sale))
-    save()
+    global PENDING_SALE_REQUEST
     if rid is not None:
-        if len(RECENT_SALES) > 2000:
-            RECENT_SALES.clear()
-        RECENT_SALES[(ACTOR["id"], rid)] = sale_no
+        PENDING_SALE_REQUEST = (ACTOR["id"], rid, sale_no)
+    try:
+        save()
+    except Exception:
+        PENDING_SALE_REQUEST = None
+        raise
     return sale_out(sale)
 
 
