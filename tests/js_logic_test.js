@@ -50,9 +50,8 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  const h=load('reorder.js',{S:{p:[{id:1,n:'Paracetamol 500mg',p:8,s:0,m:5}],s:[],g:[],purchases:[{product_id:1,supplier_id:2,supplier_name:'Trusted Supplier',unit_cost:12.5,date:'2026-10-20'}]},storeName:()=> 'ROSPOS Pharmacy',cfg:()=>({rc_addr:'Banate, Iloilo',rc_phone:'09123456789',rc_tag:'Health and inventory made simple',rc_foot:'Thank you'})});
  h.ctx.document.body={classList:{add(){},remove(){}}};h.ctx.window.addEventListener=()=>{};h.ctx.window.print=()=>{};
  run(h,'rX[1]=true;rQ[1]=4');h.el('#rpr').onclick();
- if(!/Supplier Order List/.test(h.el('#op').innerHTML))console.log('DEBUG PRINT '+h.el('#op').innerHTML.slice(0,1600));
  ok(/\/logo\.svg/.test(h.el('#op').innerHTML),'reorder print: includes ROSPOS logo');
- ok(/ORDER LIST/.test(h.el('#op').innerHTML)&&/Date/.test(h.el('#op').innerHTML),'reorder print: has a simple order-list heading and date');
+ ok(/ORDER LIST/.test(h.el('#op').innerHTML)&&/Order reference/.test(h.el('#op').innerHTML)&&/Date/.test(h.el('#op').innerHTML),'reorder print: includes the order-list heading, reference and date');
  ok(/Trusted Supplier/.test(h.el('#op').innerHTML)&&/Banate, Iloilo/.test(h.el('#op').innerHTML)&&/09123456789/.test(h.el('#op').innerHTML),'reorder print: includes supplier and configured store contact details');
  ok(/₱50\.00/.test(h.el('#op').innerHTML)&&/Est\. total/.test(h.el('#op').innerHTML)&&/Known-cost subtotal/.test(h.el('#op').innerHTML),'reorder print: calculates estimated line total and order summary');
 }
