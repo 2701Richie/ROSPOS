@@ -1,7 +1,25 @@
+# Live POS data and backups — never commit store/customer/account data
 data/
 backups/
 archives/
-__pycache__/
-*.db-shm
-*.db-wal
 source-backups/
+
+# SQLite database files, journals, and snapshots
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local runtime/configuration artifacts
+.env
+.env.*
+*.log
