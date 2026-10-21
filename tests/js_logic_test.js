@@ -129,6 +129,8 @@ pending.push((async()=>{
  const lines=b=>b.replace(/^\uFEFF/,'').trim().split('\r\n');
  const r1=run(h,"toRows('name,price,Unit Cost\\nA,10,6.5\\nB,5,')");
  ok(!r1.error&&r1.rows[0].cost==='6.5'&&r1.rows[1].cost==='','cost csv: a "Unit Cost" column is recognised, blank cells stay blank');
+ const rCurrency=run(h,"toRows('Product Name,Price (₱),Unit Cost (₱),Reorder Level,Quantity\\nA,12.50,7.25,4,9')");
+ ok(!rCurrency.error&&rCurrency.rows[0].name==='A'&&rCurrency.rows[0].price==='12.50'&&rCurrency.rows[0].cost==='7.25'&&rCurrency.rows[0].reorder==='4'&&rCurrency.rows[0].quantity==='9','cost csv: currency labels and parenthetical header notes are normalized');
  const r2=run(h,"toRows('name,price\\nA,10')");ok(!r2.error&&r2.rows[0].cost==='','cost csv: a file with no cost column still reads');
  h.el('#ie').onclick();const ex=lines(blobs[0]);
  ok(ex[0]==='name,price,reorder,quantity,cost'&&ex[1]==='A,9,0,4,'&&ex[2]==='B,5,2,1,3','cost csv: export has a cost column (blank when unknown)');
