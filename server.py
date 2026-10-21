@@ -161,18 +161,23 @@ def settings():
     return cfg
 
 
-def can_see_cost():
-    """Product costs are for managers and owners only: staff never receive them from the server."""
-    return bool(ACTOR) and ROLES[ACTOR["role"]] >= ROLES["manager"]
+def can_see_cost(actor=None):
+    """Product costs are for managers and owners only: staff never receive them from the server.
+
+    Pass the authenticated user explicitly for GET responses; ACTOR is only set
+    during POST handlers and is reset afterwards.
+    """
+    actor = ACTOR if actor is None else actor
+    return bool(actor) and ROLES.get(actor.get("role", "staff"), 0) >= ROLES["manager"]
 
 
 def no_cost(d):
     return {k: v for k, v in d.items() if k != "c"}
 
 
-def pub():
+def pub(actor=None):
     p, s = S["p"], S["s"]
-    if not can_see_cost():
+    if not can_see_cost(actor):
         p = [no_cost(x) for x in p]
         s = [dict(x, l=[no_cost(l) for l in x.get("l", [])]) for x in s]
     return {"p": p, "s": s, "g": S["g"], "today": now()[0], "cfg": settings()}
@@ -507,17 +512,24 @@ def r_delete_many(b, ip):
     why = str(b.get("why", "")).strip()
     if not why:
         raise Err(400, "Enter a reason for deleting these products.")
-    items = []
-    for i in dict.fromkeys(ids):
-        x = prod(i)
-        if not x:
-            raise Err(404, "A selected product no longer exists. Nothing was deleted.")
-        items.append(x)
+    # Validate the complete selection before changing anything, then replace the
+    # product list in one operation. This makes the persisted set explicit.
+    selected = list(dict.fromkeys(ids))
+    by_id = {p.get("id"): p for p in S["p"]}
+    if any(i not in by_id for i in selected):
+        raise Err(404, "A selected product no longer exists. Nothing was deleted.")
+    items = [by_id[i] for i in selected]
     snapshot("pre-bulk-delete")
     for x in items:
         log(x["n"], "Deleted", x["s"], 0, x["id"], why)
-        S["p"].remove(x)
+    selected_set = set(selected)
+    S["p"] = [p for p in S["p"] if p.get("id") not in selected_set]
     save()
+    # Guard against a persistence regression: success only if the saved state
+    # no longer contains any selected product IDs.
+    saved = get("state") or {}
+    if any(p.get("id") in selected_set for p in saved.get("p", [])):
+        raise Err(500, "Bulk delete could not be saved. Please retry or contact the owner.")
     return {"msg": "Deleted %d product%s." % (len(items), "" if len(items) == 1 else "s")}
 
 
@@ -886,7 +898,7 @@ class H(BaseHTTPRequestHandler):
                     return self.send(200, {"setup": not U, "me": acct(u) if u else None})
                 if not u:
                     return self.send(401, {"error": "Please sign in."})
-                return self.send(200, {"state": pub(), "me": acct(u)})
+                return self.send(200, {"state": pub(u), "me": acct(u)})
         self.send(404, {"error": "Not found."})
 
     def do_POST(self):
@@ -904,7 +916,7 @@ class H(BaseHTTPRequestHandler):
                     if self.path in PUBLIC:
                         ACTOR = None
                         out = PUBLIC[self.path](b, ip)
-                        out["state"] = pub()
+                        out["state"] = pub(out.get("me"))
                     elif self.path == "/api/logout":
                         SESSIONS.pop(session_user(self)[1], None)
                         out = {"_clear": True}

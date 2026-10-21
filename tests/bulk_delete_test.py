@@ -65,6 +65,9 @@ g = [x for x in srv.S["g"] if x.get("k") == "Deleted"]
 ok(len(g) == 3 and all(x.get("w") == "expired batch" for x in g), "B1 one audit row per product, each with the reason")
 ok(len(srv.S["s"]) == 1 and srv.S["s"][0]["l"][0]["n"] == "P1", "B1 old sales keep their items after the product is deleted")
 ok(len(glob.glob(TMP + "/backups/pre-bulk-delete-*.db")) == 1, "B1 safety snapshot taken before deleting")
+# Regression: verify deletion survives a database-backed state reload.
+saved = srv.get("state")
+ok([p["id"] for p in saved["p"]] == [4, 5], "B1 deleted products stay deleted after reloading persisted state")
 
 fresh()
 call([1, 1, 2, 2])
