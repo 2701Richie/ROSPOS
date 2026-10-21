@@ -17,7 +17,8 @@ function drawTally(sales){
  const q=($('#liveQ').value||'').trim().toLowerCase(),all=[...map.values()],units=all.reduce((a,r)=>a+r.q,0);
  const rows=all.filter(r=>!q||r.n.toLowerCase().includes(q)).sort((a,b)=>b.q-a.q||a.n.localeCompare(b.n));
  $('#liveTallyTotal').textContent=all.length?all.length+' product(s) · '+units.toLocaleString('en-PH')+' unit(s)':'';
- $('#liveTally').innerHTML=rows.length?'<table class="live-tally-table"><thead><tr><th>Product</th><th>Units</th><th>Amount</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.n)+'</td><td>'+r.q.toLocaleString('en-PH')+'</td><td>'+M(r.amt)+'</td></tr>').join('')+'</tbody></table>':'<p class="mu">'+(all.length?'No product matches your search.':'Nothing sold yet today.')+'</p>';
+ const html=rows.length?'<table class="live-tally-table"><thead><tr><th>Product</th><th>Units</th><th>Amount</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.n)+'</td><td>'+r.q.toLocaleString('en-PH')+'</td><td>'+M(r.amt)+'</td></tr>').join('')+'</tbody></table>':'<p class="mu">'+(all.length?'No product matches your search.':'Nothing sold yet today.')+'</p>';
+ const tally=$('#liveTally');if(tally.innerHTML!==html)tally.innerHTML=html;
 }
 function drawLive(){
  const day=(S&&S.today)||T,all=S.s||[],today=all.filter(s=>s.d===day),ok=today.filter(s=>!s.v),last=all[all.length-1];
@@ -32,7 +33,8 @@ function drawLive(){
  if(liveSeen===null)liveSeen=new Set(today.map(liveKey));
  else today.forEach(s=>{const k=liveKey(s);if(!liveSeen.has(k)){liveSeen.add(k);fresh.add(k)}});
  const shown=rows.slice(0,200);
- $('#liveFeed').innerHTML=shown.length?shown.map(s=>liveRow(s,fresh.has(liveKey(s)))).join('')+(rows.length>shown.length?'<p class="mu live-more">Showing the newest 200 of '+rows.length+'. Use the Receipts tab for older sales.</p>':''):'<div class="card live-empty"><h3>'+(today.length?'No sales match these filters':'No sales yet today')+'</h3><p class="mu">'+(today.length?'Change the filters above to see more.':'New sales appear here the moment they are rung up.')+'</p></div>';
+ const feedHtml=shown.length?shown.map(s=>liveRow(s,fresh.has(liveKey(s)))).join('')+(rows.length>shown.length?'<p class="mu live-more">Showing the newest 200 of '+rows.length+'. Use the Receipts tab for older sales.</p>':''):'<div class="card live-empty"><h3>'+(today.length?'No sales match these filters':'No sales yet today')+'</h3><p class="mu">'+(today.length?'Change the filters above to see more.':'New sales appear here the moment they are rung up.')+'</p></div>';
+ const feed=$('#liveFeed');if(feed.innerHTML!==feedHtml)feed.innerHTML=feedHtml;
  drawTally(today);
 }
 async function refreshLive(){

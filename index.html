@@ -12,17 +12,24 @@
 <script>try{var t=localStorage.getItem('pos-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
-<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="ilog">Inventory Logs</button><button data-t="slog">Sales Logs</button><button data-t="ulog">User Activity</button><button data-t="syslog">System Logs</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="fsb" type="button">Full screen</button><button id="tb" type="button"></button><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
+<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="logs">Logs</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="fsb" type="button">Full screen</button><button id="tb" type="button"></button><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
 <main>
-<section id="v-sell" class="two" hidden>
-<div><input id="q" type="search" placeholder="Search products" autocomplete="off" aria-label="Search products"><div id="grid"></div></div>
-<aside class="card"><h2>Current sale</h2><div id="lines"></div>
-<div id="tot"></div>
-<label style="margin-top:12px">Cash received (optional)<input id="cash" inputmode="decimal" placeholder="0.00"></label>
-<div id="chg" class="mu" style="margin-top:6px"></div>
-<button class="pri big" id="pay">Complete sale</button>
-<button id="clr" style="width:100%;margin-top:8px">Clear sale</button>
-<div id="msg" class="err" role="status"></div></aside>
+<section id="v-sell" class="two sell-workspace" hidden>
+<div class="sell-catalog">
+  <div class="sell-section-heading"><div><span class="eyebrow">CHECKOUT</span><h2>Find products</h2><p class="mu">Search by name, or scan a barcode into the search field.</p></div><span id="sellProductCount" class="sell-product-count" aria-live="polite"></span></div>
+  <label class="sell-search-label" for="q">Product search<input id="q" type="search" placeholder="Search products…" autocomplete="off" aria-label="Search products"></label>
+  <div id="grid" aria-label="Matching products"></div>
+</div>
+<aside class="card sell-checkout" aria-label="Current sale and payment">
+  <div class="sell-checkout-heading"><div><span class="eyebrow">YOUR ORDER</span><h2>Current sale</h2></div><span id="cartCount" class="sell-cart-count" aria-live="polite">0 items</span></div>
+  <div id="lines" aria-live="polite"></div>
+  <div id="tot"></div>
+  <label class="sell-cash-label" for="cash">Cash received <span class="mu">(optional)</span><input id="cash" inputmode="decimal" placeholder="₱ 0.00" autocomplete="off"></label>
+  <div id="chg" class="sell-change" aria-live="polite"></div>
+  <button class="pri big" id="pay">Complete sale</button>
+  <button id="clr" class="sell-clear" style="width:100%;margin-top:8px">Clear sale</button>
+  <div id="msg" class="err" role="status" aria-live="polite"></div>
+</aside>
 </section>
 <section id="v-live" hidden>
 <div class="live-heading"><div><span class="eyebrow">STORE ACTIVITY</span><h2>Live Sales</h2><p class="mu">Today's sales as they happen. Tap a sale to see what was sold.</p></div><div class="live-status"><span class="live-dot"></span><span id="liveStatus">Connecting…</span><button id="liveRefresh" type="button">Refresh</button></div></div>
@@ -36,45 +43,64 @@
 </div>
 </section>
 <section id="v-rcp" hidden>
-<div class="card"><input id="rq" type="search" placeholder="Search by sale number or date (YYYY-MM-DD)" autocomplete="off" aria-label="Search receipts"><p class="mu" style="margin:8px 0">Changing or voiding a sale needs a manager or owner, their password, and a reason. Sales are never deleted.</p>
-<div class="wrap"><table><thead><tr><th>No.</th><th>When</th><th>Items</th><th>Total</th><th>By</th><th>Status</th><th></th></tr></thead><tbody id="rb"></tbody></table></div></div>
+<div class="receipt-heading"><div><span class="eyebrow">TRANSACTION RECORDS</span><h2>Receipts</h2><p class="mu">Find a sale, review its items, or manage a transaction.</p></div><button type="button" class="pri" id="receiptClear">Clear filters</button></div>
+<div class="receipt-kpis"><div class="card"><span class="mu">Transactions today</span><strong id="receiptTodayCount">—</strong></div><div class="card"><span class="mu">Completed revenue today</span><strong id="receiptTodayTotal">—</strong></div><div class="card"><span class="mu">Voided today</span><strong id="receiptVoidCount">—</strong></div></div>
+<div class="card receipt-browser"><div class="receipt-filter-head"><div><h3>Transaction history</h3><p class="mu">Search by receipt number, date, cashier, or product.</p></div><span id="receiptResultCount" class="receipt-result-count"></span></div>
+<div class="receipt-filters"><label class="receipt-search">Search<input id="rq" type="search" placeholder="e.g. 1042, 2026-10-21, paracetamol" autocomplete="off" aria-label="Search receipts"></label><label>Date<input id="receiptDate" type="date"></label><label>Status<select id="receiptStatus"><option value="all">All statuses</option><option value="ok">Completed</option><option value="changed">Changed</option><option value="void">Voided</option></select></label></div>
+<p class="receipt-safety mu">Voiding or changing a sale requires manager/owner permission, a password, and a reason. Transactions are retained for audit history.</p>
+<div class="wrap receipt-table-wrap"><table class="receipt-table"><thead><tr><th>Receipt</th><th>Date &amp; time</th><th>Items</th><th>Total</th><th>Cashier</th><th>Status</th><th>Actions</th></tr></thead><tbody id="rb"></tbody></table></div>
+<div id="receiptEmpty" class="receipt-empty" hidden><strong>No matching receipts</strong><p class="mu">Try a different search or clear the filters.</p></div></div>
 </section>
 <section id="v-prod" hidden>
-<div id="prodbox">
-<div class="card" style="margin-top:16px"><h3>Add or edit a product</h3>
-<div class="form"><label>Name<input id="fn"></label><label>Price (₱)<input id="fp" inputmode="decimal"></label><label>Cost (₱, optional)<input id="fc" inputmode="decimal"></label><label>Expiry date<input id="fe" type="date"></label><label>Reorder level<input id="fm" inputmode="numeric"></label><label id="fsl">Starting stock<input id="fs" inputmode="numeric"></label></div>
-<div class="acts"><button class="pri" id="sv">Save product</button><button id="cf">Cancel</button></div><div id="fmsg" class="err" role="status"></div></div>
-<div class="card" style="margin-top:16px"><h3>Import from a CSV file</h3>
-<p class="mu" style="margin-top:0">Columns: name, price, reorder, quantity, and optionally cost. The first row must be the headings. Nothing is saved until you confirm the preview.</p>
-<div class="form"><label>What should this file do?<select id="im"><option value="products">Add or update products</option><option value="add">Add received stock</option><option value="set">Set exact counts</option></select></label><label>CSV file<input id="imf" type="file" accept=".csv,text/csv"></label></div>
-<div class="acts"><button class="pri" id="ip">Preview</button><label id="imwhywrap" hidden>Reason for import (required)<input id="imwhy" placeholder="e.g. monthly stock update"></label><button class="pri" id="ia" hidden>Apply import</button><button id="ie">Export products</button><button id="it">Download template</button></div>
+<div class="products-heading"><div><span class="eyebrow">INVENTORY CATALOG</span><h2>Products</h2><p class="mu">Manage product details, pricing, expiry, and stock corrections.</p></div><button type="button" class="pri" id="productAdd">+ Add product</button></div>
+<div class="card products-list-card">
+<div class="products-list-toolbar"><label class="products-search">Search inventory<input id="ps" type="search" placeholder="Search by product name…" autocomplete="off" aria-label="Search products"></label><div class="products-list-meta"><span id="pc" class="mu">Loading products…</span><label class="products-select-all"><input type="checkbox" id="pall" aria-label="Select all shown products"> Select shown</label></div></div>
+<div id="bulk" class="products-bulk" hidden><b id="bn"></b><input id="bwhy" placeholder="Reason required" aria-label="Reason for deleting the selected products"><button id="bdel" type="button" class="danger-action">Delete selected</button><button id="bclr" type="button">Clear selection</button></div>
+<div class="wrap products-table-wrap"><table class="products-table"><thead><tr><th aria-label="Select"></th><th>Product</th><th>Price</th><th>Cost</th><th>In stock</th><th>Expiry</th><th>Status</th><th>Correct stock</th><th>Actions</th></tr></thead><tbody id="pt"></tbody></table></div>
+<div id="rm" class="products-message err" role="status"></div>
+</div>
+<dialog class="products-dialog" id="productFormDialog" aria-labelledby="productFormTitle">
+<div class="products-dialog-head"><div><span class="eyebrow">PRODUCT DETAILS</span><h3 id="productFormTitle">Add a product</h3><p class="mu">Enter the product information below.</p></div><button type="button" class="products-dialog-close" id="productFormClose" aria-label="Close product form">×</button></div>
+<div class="products-dialog-body"><div class="form products-form"><label>Name<input id="fn" autocomplete="off"></label><label>Selling price (₱)<input id="fp" inputmode="decimal"></label><label>Cost (₱, optional)<input id="fc" inputmode="decimal"></label><label>Expiry date<input id="fe" type="date"></label><label>Reorder level<input id="fm" inputmode="numeric"></label><label id="fsl">Starting stock<input id="fs" inputmode="numeric"></label></div>
+<div class="acts products-dialog-actions"><button class="pri" id="sv">Save product</button><button id="cf">Cancel</button></div><div id="fmsg" class="err" role="status"></div></div>
+</dialog>
+<div class="products-secondary">
+<details class="products-panel" id="productImportPanel"><summary><span><b>Import / export</b><small>CSV tools for product records and stock-count corrections</small></span><span class="products-summary-action">Open tools</span></summary>
+<div class="products-panel-body"><p class="mu products-import-help">CSV columns: name, price, reorder, quantity, and optionally cost. The first row must contain headings. Review the preview before applying changes.</p>
+<div class="form products-form"><label>Import mode<select id="im"><option value="products">Add or update products</option><option value="set">Set exact counts</option></select></label><label>CSV file<input id="imf" type="file" accept=".csv,text/csv"></label></div>
+<div class="acts products-import-actions"><button class="pri" id="ip">Preview import</button><label id="imwhywrap" hidden>Reason for import (required)<input id="imwhy" placeholder="e.g. monthly stock-count correction"></label><button class="pri" id="ia" hidden>Apply import</button><button id="ie">Export products</button><button id="it">Download template</button></div>
 <div id="io" role="status"></div></div>
-<div class="card" style="margin-top:16px"><input id="ps" type="search" placeholder="Search products by name" autocomplete="off" aria-label="Search products"><div id="pc" class="mu" style="margin:8px 0"></div>
-<div id="bulk" class="acts" hidden><b id="bn"></b><input id="bwhy" placeholder="Reason required" aria-label="Reason for deleting the selected products"><button id="bdel" type="button">Delete selected</button><button id="bclr" type="button">Clear selection</button></div>
-<div class="wrap"><table><thead><tr><th><input type="checkbox" id="pall" aria-label="Select all shown products"></th><th>Name</th><th>Price</th><th>Cost</th><th>Stock</th><th>Expiry</th><th>Status</th><th>Change quantity</th><th></th></tr></thead><tbody id="pt"></tbody></table></div>
-<p class="mu" style="margin-bottom:0">Type a number, then press Add for a delivery or Set to correct the count after a stock check.</p>
-<div id="rm" class="err" role="status"></div></div>
+</details>
 </div>
 </section>
+<section id="v-logs" hidden>
+<div id="log-cabinet-home" class="log-cabinet-home"><div class="log-heading"><div><span class="eyebrow">RECORDS &amp; AUDIT</span><h2>Log Cabinet</h2><p class="mu">Choose a drawer to open its records. Each log stays separate for easier review.</p></div></div><div class="log-cabinet-grid">
+<button class="log-drawer" data-log-drawer="ilog" type="button"><span class="log-drawer-icon">▤</span><span class="log-drawer-copy"><b>Inventory Logs</b><small>Product edits, stock movements, imports and bulk changes</small></span><span class="log-drawer-open">Open drawer ↗</span></button>
+<button class="log-drawer" data-log-drawer="slog" type="button"><span class="log-drawer-icon">▧</span><span class="log-drawer-copy"><b>Sales Logs</b><small>Completed sales, voids, amendments and receipt history</small></span><span class="log-drawer-open">Open drawer ↗</span></button>
+<button class="log-drawer" data-log-drawer="ulog" type="button"><span class="log-drawer-icon">♙</span><span class="log-drawer-copy"><b>User Activity</b><small>Sign-ins, account changes and administrative actions</small></span><span class="log-drawer-open">Open drawer ↗</span></button>
+<button class="log-drawer" data-log-drawer="syslog" type="button"><span class="log-drawer-icon">⚙</span><span class="log-drawer-copy"><b>System Logs</b><small>System events, errors and diagnostic details</small></span><span class="log-drawer-open">Open drawer ↗</span></button>
+</div></div>
 <section id="v-ilog" class="log-page" hidden>
-<div class="log-heading"><div><span class="eyebrow">AUDIT TRAIL</span><h2>Inventory Logs</h2><p class="mu">Product edits, stock movements, imports, and bulk operations. Expand an operation to inspect its individual changes.</p></div><button class="pri" data-log-refresh="inventory">Refresh</button></div>
+<div class="log-heading"><div><button class="log-back" data-log-cabinet-back type="button">← All log drawers</button><span class="eyebrow">AUDIT TRAIL</span><h2>Inventory Logs</h2><p class="mu">Product edits, stock movements, imports, and bulk operations. Expand an operation to inspect its individual changes.</p></div><button class="pri" data-log-refresh="inventory">Refresh</button></div>
 <div class="log-filters card"><label>Search product, SKU, action, or operation<input id="il-q" type="search" placeholder="e.g. paracetamol, CSV import…" autocomplete="off"></label><label>From<input id="il-from" type="date"></label><label>To<input id="il-to" type="date"></label><label>User<input id="il-user" placeholder="Username or name"></label><label>Status<select id="il-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
 <div class="card log-results"><div class="log-result-head"><b id="il-count">Loading inventory history…</b><span class="mu" id="il-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Action / operation</th><th>Product / reference</th><th>By</th><th>Change</th><th>Status</th><th></th></tr></thead><tbody id="il-list"></tbody></table></div><div class="log-pager"><button id="il-prev" disabled>Previous</button><button id="il-next" disabled>Next</button></div></div>
 </section>
 <section id="v-slog" class="log-page" hidden>
-<div class="log-heading"><div><span class="eyebrow">TRANSACTION HISTORY</span><h2>Sales Logs</h2><p class="mu">Completed sales, voids, and amendments. Original transactions remain traceable.</p></div><button class="pri" data-log-refresh="sales">Refresh</button></div>
+<div class="log-heading"><div><button class="log-back" data-log-cabinet-back type="button">← All log drawers</button><span class="eyebrow">TRANSACTION HISTORY</span><h2>Sales Logs</h2><p class="mu">Completed sales, voids, and amendments. Original transactions remain traceable.</p></div><button class="pri" data-log-refresh="sales">Refresh</button></div>
 <div class="log-filters card"><label>Search receipt, cashier, or item<input id="sl-q" type="search" placeholder="e.g. receipt 1042…" autocomplete="off"></label><label>From<input id="sl-from" type="date"></label><label>To<input id="sl-to" type="date"></label><label>Cashier / user<input id="sl-user" placeholder="Name"></label><label>Status<select id="sl-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
 <div class="card log-results"><div class="log-result-head"><b id="sl-count">Loading sales history…</b><span class="mu" id="sl-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Transaction</th><th>Receipt / reference</th><th>Cashier</th><th>Total change</th><th>Status</th><th></th></tr></thead><tbody id="sl-list"></tbody></table></div><div class="log-pager"><button id="sl-prev" disabled>Previous</button><button id="sl-next" disabled>Next</button></div></div>
 </section>
 <section id="v-ulog" class="log-page" hidden>
-<div class="log-heading"><div><span class="eyebrow">ACCOUNTABILITY</span><h2>User Activity</h2><p class="mu">Logins, account and role changes, settings changes, and administrative actions.</p></div><button class="pri" data-log-refresh="activity">Refresh</button></div>
+<div class="log-heading"><div><button class="log-back" data-log-cabinet-back type="button">← All log drawers</button><span class="eyebrow">ACCOUNTABILITY</span><h2>User Activity</h2><p class="mu">Logins, account and role changes, settings changes, and administrative actions.</p></div><button class="pri" data-log-refresh="activity">Refresh</button></div>
 <div class="log-filters card"><label>Search user or action<input id="ul-q" type="search" placeholder="e.g. Login failed…" autocomplete="off"></label><label>From<input id="ul-from" type="date"></label><label>To<input id="ul-to" type="date"></label><label>User<input id="ul-user" placeholder="Username or name"></label><label>Status<select id="ul-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
 <div class="card log-results"><div class="log-result-head"><b id="ul-count">Loading user activity…</b><span class="mu" id="ul-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Activity</th><th>Account / reference</th><th>User</th><th>Details</th><th>Status</th><th></th></tr></thead><tbody id="ul-list"></tbody></table></div><div class="log-pager"><button id="ul-prev" disabled>Previous</button><button id="ul-next" disabled>Next</button></div></div>
 </section>
 <section id="v-syslog" class="log-page" hidden>
-<div class="log-heading"><div><span class="eyebrow">DIAGNOSTICS</span><h2>System Logs</h2><p class="mu">Unexpected server errors and failed persistence checks. Diagnostic details are restricted to authorized roles.</p></div><button class="pri" data-log-refresh="system">Refresh</button></div>
+<div class="log-heading"><div><button class="log-back" data-log-cabinet-back type="button">← All log drawers</button><span class="eyebrow">DIAGNOSTICS</span><h2>System Logs</h2><p class="mu">Unexpected server errors and failed persistence checks. Diagnostic details are restricted to authorized roles.</p></div><button class="pri" data-log-refresh="system">Refresh</button></div>
 <div class="log-filters card"><label>Search error or operation<input id="yl-q" type="search" placeholder="e.g. database, import…" autocomplete="off"></label><label>From<input id="yl-from" type="date"></label><label>To<input id="yl-to" type="date"></label><label>User / actor<input id="yl-user" placeholder="Name (if recorded)"></label><label>Status<select id="yl-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
 <div class="card log-results"><div class="log-result-head"><b id="yl-count">Loading system logs…</b><span class="mu" id="yl-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Error / event</th><th>Operation</th><th>Actor</th><th>Details</th><th>Status</th><th></th></tr></thead><tbody id="yl-list"></tbody></table></div><div class="log-pager"><button id="yl-prev" disabled>Previous</button><button id="yl-next" disabled>Next</button></div></div>
+</section>
+
 </section>
 <section id="v-acc" hidden>
 <div class="card"><h2>Accounts</h2><p class="mu" style="margin-top:0">Staff can sell and look things up. Managers can also change products and stock and void sales. Owners can also manage accounts and restore backups.</p>
@@ -99,23 +125,59 @@
 <div class="card wrap" style="margin-top:16px"><h3>Getting low</h3><table><thead><tr><th></th><th>Product</th><th>In stock</th><th>Reorder level</th><th>Sold (30 days)</th><th>Order qty</th></tr></thead><tbody id="rn2"></tbody></table></div>
 </section>
 <section id="v-rep" hidden>
+<div id="reportCabinet" class="report-cabinet">
+  <div class="report-intro"><span class="eyebrow">REPORT CENTER</span><h2>Reports & insights</h2><p class="mu">Choose a focused view. Sales trends, financial figures, stock alerts, transaction history, and backup tools are kept separate.</p></div>
+  <div class="report-drawers">
+    <button type="button" class="report-drawer" data-report-drawer="overview"><span class="report-drawer-icon">↗</span><span><b>Sales forecast</b><small>Projected revenue, expected transactions, and sales outlook</small></span><span class="report-drawer-arrow">→</span></button>
+    <button type="button" class="report-drawer" data-report-drawer="financial"><span class="report-drawer-icon">₱</span><span><b>Profit & stock value</b><small>Stock value, reorder cost, and estimated gross profit</small></span><span class="report-drawer-arrow">→</span></button>
+    <button type="button" class="report-drawer" data-report-drawer="alerts"><span class="report-drawer-icon">!</span><span><b>Stock & expiry alerts</b><small>Expired products, upcoming expiry, and low stock</small></span><span class="report-drawer-arrow">→</span></button>
+    <button type="button" class="report-drawer" data-report-drawer="sales"><span class="report-drawer-icon">≡</span><span><b>Recent sales</b><small>Latest completed or voided transactions</small></span><span class="report-drawer-arrow">→</span></button>
+    <button type="button" class="report-drawer" data-report-drawer="daily"><span class="report-drawer-icon">▦</span><span><b>Daily sales history</b><small>Look up a specific date and review that day's sales</small></span><span class="report-drawer-arrow">→</span></button>
+    <button type="button" class="report-drawer" data-report-drawer="backup"><span class="report-drawer-icon">⇧</span><span><b>Backup & restore</b><small>Download a safe copy or restore data from a backup file</small></span><span class="report-drawer-arrow">→</span></button>
+  </div>
+</div>
+<section class="report-page" data-report-page="overview" hidden>
+  <button class="report-back" data-report-home type="button">← All report sections</button>
 <div class="forecast-panel card">
   <div class="forecast-heading">
     <div><span class="eyebrow">SALES INTELLIGENCE</span><h2>Sales forecast</h2><p class="mu">Estimate store-wide revenue and transaction volume from completed sales.</p></div>
     <div class="forecast-period" role="group" aria-label="Forecast period"><button data-fdays="7">7 days</button><button data-fdays="30" class="on">30 days</button><button data-fdays="90">90 days</button></div>
   </div>
   <div id="forecastContent" aria-live="polite"></div>
-</div>
-<div class="stats" id="st"></div>
-<div class="stats" id="cs"></div>
-<div class="stats" id="al"></div>
-<div class="card wrap"><h3>Recent sales</h3><table><thead><tr><th>No.</th><th>Date</th><th>Items</th><th>Total</th></tr></thead><tbody id="rs"></tbody></table></div>
-<div class="card" style="margin-top:16px"><h3>Backup and restore</h3><p class="mu" style="margin-top:0">Download a backup file and keep it somewhere safe, such as a USB drive or another computer. Automatic daily database backups are also kept on this laptop.</p>
+</div><div class="stats" id="st"></div>
+</section>
+<section class="report-page" data-report-page="financial" hidden>
+  <button class="report-back" data-report-home type="button">← All report sections</button>
+  <div class="report-section-heading"><span class="eyebrow">FINANCIAL SNAPSHOT</span><h2>Profit & stock value</h2><p class="mu">Estimates use recorded product costs. Items without a cost are excluded from cost-based figures.</p></div>
+  <div class="stats" id="cs"></div>
+</section>
+<section class="report-page" data-report-page="alerts" hidden>
+  <button class="report-back" data-report-home type="button">← All report sections</button>
+  <div class="report-section-heading"><span class="eyebrow">INVENTORY WATCH</span><h2>Stock & expiry alerts</h2><p class="mu">Review expired items, products expiring within 90 days, and products at or below their reorder level.</p></div>
+  <div class="stats" id="al"></div>
+</section>
+<section class="report-page" data-report-page="sales" hidden>
+  <button class="report-back" data-report-home type="button">← All report sections</button>
+  <div class="report-section-heading"><span class="eyebrow">TRANSACTION SNAPSHOT</span><h2>Recent sales</h2><p class="mu">The latest 10 transactions are shown below. For complete history and filters, open Sales Logs.</p></div>
+  <div class="card wrap"><h3>Recent sales</h3><table><thead><tr><th>No.</th><th>Date</th><th>Items</th><th>Total</th></tr></thead><tbody id="rs"></tbody></table></div>
+</section>
+<section class="report-page" data-report-page="daily" hidden>
+  <button class="report-back" data-report-home type="button">← All report sections</button>
+  <div class="report-section-heading"><span class="eyebrow">DAILY SALES LEDGER</span><h2>Daily sales history</h2><p class="mu">Choose a date to see its total sales and every transaction. Use the history table to jump back to another date.</p></div>
+  <div class="card daily-sales-filter"><label for="reportSalesDate">Sales date</label><div class="daily-sales-date-row"><input id="reportSalesDate" type="date"><button type="button" id="reportSalesToday">Today</button></div><div id="reportSalesSummary" class="daily-sales-summary" aria-live="polite"></div></div>
+  <div class="card wrap daily-sales-table"><h3 id="reportSalesDayHeading">Transactions for selected date</h3><table><thead><tr><th>Receipt #</th><th>Time</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody id="reportSalesDayRows"></tbody></table></div>
+  <div class="card wrap daily-sales-table"><h3>Daily totals</h3><p class="mu">Most recent 90 calendar days with recorded sales. Voided sales are shown separately and excluded from totals.</p><table><thead><tr><th>Date</th><th>Transactions</th><th>Sales total</th></tr></thead><tbody id="reportDailyHistoryRows"></tbody></table></div>
+</section>
+<section class="report-page" data-report-page="backup" hidden>
+  <button class="report-back" data-report-home type="button">← All report sections</button>
+  <div class="report-section-heading"><span class="eyebrow">DATA SAFETY</span><h2>Backup & restore</h2><p class="mu">Backups contain business data. Keep downloaded copies somewhere safe; restoring replaces current data.</p></div>
+  <div class="card" style="margin-top:16px"><h3>Backup and restore</h3><p class="mu" style="margin-top:0">Download a backup file and keep it somewhere safe, such as a USB drive or another computer. Automatic daily database backups are also kept on this laptop.</p>
 <div class="acts"><button class="pri" id="bd">Download backup file (.json)</button></div>
 <div style="margin-top:14px"><label for="bfile">Restore from a backup file</label><input id="bfile" type="file" accept=".json,application/json"></div>
 <label id="bpl" style="margin-top:10px">Owner password (required to restore)<input id="bpn" type="password" autocomplete="current-password"></label>
 <div class="acts"><button id="br">Restore selected file</button></div><div id="bm" class="err" role="status" aria-live="polite"></div>
 <details style="margin-top:12px"><summary>Legacy text backup (for older browser backups)</summary><p class="mu">Paste a backup copied from the older browser version if you need to migrate it.</p><textarea id="bk" rows="4" aria-label="Legacy backup text" placeholder="Paste the older ROSPOS backup text here"></textarea><div class="acts"><button id="brlegacy">Restore legacy text</button></div></details></div>
+</section>
 </section>
 </main>
 <div id="auth" class="ov"><div class="card">

@@ -1224,7 +1224,7 @@ class H(BaseHTTPRequestHandler):
                     if str(gkey).startswith("event-"):
                         row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where id=?", (int(str(gkey)[6:]),)).fetchall()
                     else:
-                        row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where category=? and operation_id=? order by id desc limit 1", (category, gkey)).fetchall()
+                        row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where category=? and operation_id=? order by case when entity_type='import' then 0 else 1 end, id desc limit 1", (category, gkey)).fetchall()
                     decoded = decode_rows(row)
                     if not decoded:
                         continue

@@ -1,5 +1,12 @@
 // reports.js: Reports, lightweight sales forecasting, alerts, backup and restore
 let forecastDays = 30;
+// Reports are organized into focused views; returning to the tab always starts at the hub.
+if(document.addEventListener)document.addEventListener('click',e=>{
+ const drawer=e.target.closest('[data-report-drawer]');
+ if(drawer){const key=drawer.dataset.reportDrawer;const page=document.querySelector('[data-report-page="'+key+'"]');if(!page)return;$('#reportCabinet').hidden=true;document.querySelectorAll('#v-rep [data-report-page]').forEach(x=>x.hidden=x!==page);if(key==='daily')drawDailySales();return}
+ const dayButton=e.target.closest('[data-report-sales-day]');if(dayButton){$('#reportSalesDate').value=dayButton.dataset.reportSalesDay;drawDailySales();return}
+ if(e.target.closest('[data-report-home]')){document.querySelectorAll('#v-rep [data-report-page]').forEach(x=>x.hidden=true);$('#reportCabinet').hidden=false}
+});
 function localDay(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function shiftDay(day,offset){const d=new Date(day+'T12:00:00');d.setDate(d.getDate()+offset);return localDay(d)}
 function dayMap(){const map=new Map();for(const s of S.s){if(s.v||!/^\d{4}-\d{2}-\d{2}$/.test(s.d||''))continue;const row=map.get(s.d)||{revenue:0,transactions:0};row.revenue+=Number(s.tot)||0;row.transactions++;map.set(s.d,row)}return map}
@@ -48,6 +55,20 @@ function drawCost(){
  +card('Gross profit today',M(c.today.profit),pn(c.today))
  +card('Gross profit, last 30 days',M(c.d30.profit),pn(c.d30))
 }
+function drawDailySales(){
+ const picker=$('#reportSalesDate');if(!picker)return;
+ if(!picker.value)picker.value=T;
+ const selected=picker.value,all=S.s.filter(s=>s.d===selected),valid=all.filter(s=>!s.v),voided=all.filter(s=>s.v),total=R(valid.reduce((n,s)=>n+(Number(s.tot)||0),0));
+ $('#reportSalesDayHeading').textContent='Transactions for '+selected;
+ $('#reportSalesSummary').innerHTML='<div class="daily-sales-kpi"><span class="mu">Sales total</span><b>'+M(total)+'</b></div><div class="daily-sales-kpi"><span class="mu">Completed sales</span><b>'+valid.length+'</b></div><div class="daily-sales-kpi"><span class="mu">Voided transactions</span><b>'+voided.length+'</b></div>';
+ const rows=all.slice().sort((a,b)=>String(b.t||'').localeCompare(String(a.t||''))||Number(b.no||0)-Number(a.no||0));
+ $('#reportSalesDayRows').innerHTML=rows.map(s=>'<tr><td>#'+esc(s.no||'—')+'</td><td>'+esc(s.t||'—')+'</td><td>'+esc((s.l||[]).reduce((n,l)=>n+(Number(l.q)||0),0))+'</td><td>'+M(Number(s.tot)||0)+'</td><td><span class="daily-sale-status '+(s.v?'is-void':'is-complete')+'">'+(s.v?'Voided':'Completed')+'</span></td></tr>').join('')||'<tr><td colspan="5" class="mu">No transactions recorded for this date.</td></tr>';
+ const byDate=new Map();for(const sale of S.s){if(!/^\d{4}-\d{2}-\d{2}$/.test(sale.d||''))continue;const row=byDate.get(sale.d)||{count:0,voided:0,total:0};if(sale.v)row.voided++;else{row.count++;row.total+=Number(sale.tot)||0}byDate.set(sale.d,row)}
+ const dates=[...byDate.keys()].sort((a,b)=>b.localeCompare(a)).slice(0,90);
+ $('#reportDailyHistoryRows').innerHTML=dates.map(d=>{const x=byDate.get(d);return '<tr class="daily-sales-history-row'+(d===selected?' is-selected':'')+'"><td><button type="button" class="daily-sales-day-link" data-report-sales-day="'+d+'">'+d+'</button></td><td>'+x.count+(x.voided?' <small class="mu">('+x.voided+' voided)</small>':'')+'</td><td>'+M(R(x.total))+'</td></tr>'}).join('')||'<tr><td colspan="3" class="mu">No sales history recorded yet.</td></tr>';
+}
+const reportDatePicker=document.querySelector('#reportSalesDate');if(reportDatePicker&&reportDatePicker.addEventListener)reportDatePicker.addEventListener('change',drawDailySales);
+const reportTodayButton=document.querySelector('#reportSalesToday');if(reportTodayButton&&reportTodayButton.addEventListener)reportTodayButton.addEventListener('click',()=>{$('#reportSalesDate').value=T;drawDailySales()});
 function drawRep(){
  const td=S.s.filter(s=>s.d===T&&!s.v),sum=k=>R(td.reduce((a,s)=>a+s[k],0));drawForecast();drawCost();
  $('#st').innerHTML='<div class="card"><span class="mu">Sales today</span><b>'+td.length+'</b></div><div class="card"><span class="mu">Total today</span><b>'+M(sum('tot'))+'</b></div>';
