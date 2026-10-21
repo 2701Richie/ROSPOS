@@ -14,8 +14,11 @@ $('#lines').onchange=e=>{const t=e.target;if(t.classList&&t.classList.contains('
 $('#lines').onfocusin=e=>{const t=e.target;if(t.classList&&t.classList.contains('qn')&&t.select)t.select()};
 $('#cash').oninput=drawChg;
 $('#clr').onclick=()=>{cart=[];$('#cash').value='';say('');drawLines()};
+let payRid=null,paySig='';
+function rid(){return(window.crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)}
 $('#pay').onclick=async()=>{const b=$('#pay');if(b.disabled)return;if(!cart.length)return say('Add a product first.');const c=parseFloat($('#cash').value),x=calc();if(!isNaN(c)&&c<x.t)return say('Cash received is less than the total.');
-b.disabled=true;const r=await api('/api/sale',{lines:cart.map(l=>({id:l.id,q:l.q})),cash:isNaN(c)?null:c});b.disabled=false;
-if(r.error){await load();clampCart();drawGrid();drawLines();return say(r.error)}
-receipt(r.sale);cart=[];$('#cash').value='';say('');drawLines();drawGrid()};
+const sig=JSON.stringify([cart.map(l=>[l.id,l.q]),isNaN(c)?null:c]);if(!payRid||sig!==paySig){payRid=rid();paySig=sig}
+b.disabled=true;const r=await api('/api/sale',{lines:cart.map(l=>({id:l.id,q:l.q})),cash:isNaN(c)?null:c,rid:payRid});b.disabled=false;
+if(r.error){if(!/^Cannot reach/.test(r.error))payRid=null;await load();clampCart();drawGrid();drawLines();return say(r.error)}
+payRid=null;receipt(r.sale);cart=[];$('#cash').value='';say('');drawLines();drawGrid()};
 function clampCart(){cart.forEach(l=>{const c=S.p.find(x=>x.id===l.id);if(c&&l.q>c.s)l.q=c.s});cart=cart.filter(l=>S.p.some(p=>p.id===l.id)&&l.q>0)}
