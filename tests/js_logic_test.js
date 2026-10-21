@@ -230,4 +230,12 @@ pending.push((async()=>{
  h.ctx.navigator={userAgent:'X11'};run(h,'receipt('+JSON.stringify(sales.base)+')');ok(!/id="prb"/.test(h.el('#rc').innerHTML),'receipt: the popup on a computer has a single Print button');
 }
 
+{ // Reorder: typing an order quantity must stick (a doubled backslash in the digit regex once reset every entry)
+ const h=load('reorder.js',{});h.ctx.S={p:[{id:7,n:'Zed',p:1,s:0,m:5,e:''}],s:[],g:[],suppliers:[],purchases:[]};
+ const fire=v=>h.el('#v-rdr').onchange({target:{id:'',classList:{contains:c=>c==='rn'},value:v,dataset:{id:'7'}}});
+ fire('12');ok(run(h,'rQ[7]')===12,'reorder: a typed order quantity is kept');
+ const t={id:'',classList:{contains:c=>c==='rn'},value:'abc',dataset:{id:'7'}};h.el('#v-rdr').onchange({target:t});
+ ok(run(h,'rQ[7]')===12&&t.value==12,'reorder: a non-numeric entry goes back to the last good quantity');
+}
+
 Promise.all(pending).then(()=>process.exit(bad?1:0),e=>{console.log('FAIL test crashed: '+e);process.exit(1)});
