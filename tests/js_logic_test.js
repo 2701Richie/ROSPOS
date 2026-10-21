@@ -52,7 +52,7 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  run(h,'rX[1]=true;rQ[1]=4');h.el('#rpr').onclick();
  ok(/\/logo\.svg/.test(h.el('#op').innerHTML),'reorder print: includes ROSPOS logo');
  ok(/ORDER LIST/.test(h.el('#op').innerHTML)&&/Order reference/.test(h.el('#op').innerHTML)&&/Date/.test(h.el('#op').innerHTML),'reorder print: includes the order-list heading, reference and date');
- ok(/Trusted Supplier/.test(h.el('#op').innerHTML)&&/Banate, Iloilo/.test(h.el('#op').innerHTML)&&/09123456789/.test(h.el('#op').innerHTML),'reorder print: includes supplier and configured store contact details');
+ ok(!/Trusted Supplier/.test(h.el('#op').innerHTML)&&/Banate, Iloilo/.test(h.el('#op').innerHTML)&&/09123456789/.test(h.el('#op').innerHTML),'reorder print: omits supplier name and keeps configured store contact details');
  ok(/Unit cost/.test(h.el('#op').innerHTML)&&/Supplier to complete pricing/.test(h.el('#op').innerHTML)&&!(/₱50\.00/.test(h.el('#op').innerHTML)),'reorder print: leaves cost fields blank for supplier to fill in');
 }
 
