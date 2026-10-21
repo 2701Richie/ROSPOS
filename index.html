@@ -131,13 +131,13 @@
 </section>
 <section id="v-rdr" class="reorder-page" hidden>
  <div class="card reorder-head">
-  <div class="reorder-title"><div><span class="eyebrow">INVENTORY CONTROL</span><h2>Reorder</h2><p class="mu">Review low stock and prepare one supplier order list.</p></div><label class="reorder-threshold">Getting low threshold <span>(% above minimum)</span><input id="rmg" inputmode="numeric" aria-label="Getting low threshold percentage"></label></div>
+  <div class="reorder-title"><div><span class="eyebrow">INVENTORY CONTROL</span><h2>Reorder</h2><p class="mu">Compare recorded supplier costs and prepare a supplier-specific order.</p></div><label class="reorder-threshold">Order from supplier<select id="rSupplier" aria-label="Filter reorder list by supplier"><option value="">All suppliers · cheapest known cost</option></select></label><label class="reorder-threshold">Getting low threshold <span>(% above minimum)</span><input id="rmg" inputmode="numeric" aria-label="Getting low threshold percentage"></label></div>
   <div id="rstats" class="reorder-stats" aria-live="polite"></div>
   <div class="reorder-actions"><span id="rselected" class="mu">Order list sorted A–Z</span><div><button id="rcsv">Export CSV</button><button class="pri" id="rpr">Print order list</button></div></div>
   <div id="rmsg" class="err" role="status"></div><div id="rnone" class="mu"></div>
  </div>
  <div class="card reorder-list-card"><div class="reorder-list-heading"><div><h3>Stock to review</h3><p class="mu">Tick items to include them. Suggested quantity brings stock up to twice the reorder level.</p></div><span id="rrowcount" class="reorder-count"></span></div>
-  <div class="wrap reorder-table-wrap"><table class="reorder-table"><thead><tr><th class="reorder-check-col"><span class="sr-only">Include</span></th><th>Product</th><th>Status</th><th>Stock</th><th>Min.</th><th>Sold 30d</th><th>Order qty</th></tr></thead><tbody id="reorderRows"></tbody></table></div>
+  <div class="wrap reorder-table-wrap"><table class="reorder-table"><thead><tr><th class="reorder-check-col"><span class="sr-only">Include</span></th><th>Product</th><th>Status</th><th>Stock</th><th>Min.</th><th>Sold 30d</th><th>Order qty</th><th>Supplier / best price</th><th>Latest cost</th></tr></thead><tbody id="reorderRows"></tbody></table></div>
  </div>
 </section>
 <section id="v-rep" hidden>
