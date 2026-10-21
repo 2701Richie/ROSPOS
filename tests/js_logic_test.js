@@ -21,7 +21,7 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(names(L.low)==='','reorder: well-stocked product is not listed');
  ok(L.none===1,'reorder: only products with stock and no reorder level are reported as never appearing (%s)'.replace('%s',L.none));
  run(h,'badge()');ok(h.el('#rdrb').textContent==='Reorder (2)','reorder: tab badge counts zero-stock items');
- ok(names(run(h,'picked()'))==='','reorder: no products are selected automatically');
+ ok(names(run(h,'picked()'))==='Alpha,Beta,Delta,Gamma','reorder: All suppliers includes every product by default');
  ok(run(h,'sug(S.p[0])')===1,'reorder: default order quantity for a zero-level product is 1');
 }
 
@@ -29,7 +29,7 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
 {
  const products=[{id:1,n:'Urgent Item',p:10,s:0,m:3},{id:2,n:'Zinc Tablets',p:12,s:50,m:5}];
  const h=load('reorder.js',{S:{p:products,s:[],g:[],suppliers:[{id:7,name:'Backup Supplier'}],purchases:[{product_id:1,supplier_id:8,supplier_name:'Cheapest Supplier',unit_cost:2,date:'2026-10-20'}]}});
- h.el('#rSearch').value='zinc';
+ h.el('#rSupplier').value='7';h.el('#rSearch').value='zinc';
  const visible=run(h,'visibleReorderRows(reorderRows().rows)');
  ok(visible.length===1&&visible[0].p.n==='Zinc Tablets','reorder: search finds a product even when it is not currently low on stock');
  run(h,'drawRdr()');
@@ -53,7 +53,7 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(/\/logo\.svg/.test(h.el('#op').innerHTML),'reorder print: includes ROSPOS logo');
  ok(/ORDER LIST/.test(h.el('#op').innerHTML)&&/Order reference/.test(h.el('#op').innerHTML)&&/Date/.test(h.el('#op').innerHTML),'reorder print: includes the order-list heading, reference and date');
  ok(/Trusted Supplier/.test(h.el('#op').innerHTML)&&/Banate, Iloilo/.test(h.el('#op').innerHTML)&&/09123456789/.test(h.el('#op').innerHTML),'reorder print: includes supplier and configured store contact details');
- ok(/₱50\.00/.test(h.el('#op').innerHTML)&&/Est\. total/.test(h.el('#op').innerHTML)&&/Known-cost subtotal/.test(h.el('#op').innerHTML),'reorder print: calculates estimated line total and order summary');
+ ok(/Unit cost/.test(h.el('#op').innerHTML)&&/Supplier to complete pricing/.test(h.el('#op').innerHTML)&&!(/₱50\.00/.test(h.el('#op').innerHTML)),'reorder print: leaves cost fields blank for supplier to fill in');
 }
 
 // ---- Sell: type the quantity on a cart line ----
