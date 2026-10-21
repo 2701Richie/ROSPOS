@@ -21,8 +21,8 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(names(L.low)==='','reorder: well-stocked product is not listed');
  ok(L.none===1,'reorder: only products with stock and no reorder level are reported as never appearing (%s)'.replace('%s',L.none));
  run(h,'badge()');ok(h.el('#rdrb').textContent==='Reorder (2)','reorder: tab badge counts zero-stock items');
- ok(names(run(h,'picked()'))==='Alpha,Gamma','reorder: zero-stock items are ticked by default in the order list');
- ok((run(h,'picked()').find(x=>x.n==='Alpha')||{}).q===1,'reorder: default order quantity for a zero-level product is 1');
+ ok(names(run(h,'picked()'))==='','reorder: no products are selected automatically');
+ ok(run(h,'sug(S.p[0])')===1,'reorder: default order quantity for a zero-level product is 1');
 }
 
 // ---- Reorder: search all products and assign selected items to a chosen supplier ----
@@ -32,6 +32,8 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  h.el('#rSearch').value='zinc';
  const visible=run(h,'visibleReorderRows(reorderRows().rows)');
  ok(visible.length===1&&visible[0].p.n==='Zinc Tablets','reorder: search finds a product even when it is not currently low on stock');
+ const searchRow=run(h,'rrow(visibleReorderRows(reorderRows().rows)[0])');
+ ok(/Add to order/.test(searchRow)&&!(/class="ri"[^>]*checked/.test(searchRow)),'reorder: search results offer Add to order without auto-selecting');
  h.el('#rSupplier').value='7';run(h,'rX[1]=false;rX[2]=true');
  const chosen=run(h,'picked()');
  ok(chosen.length===1&&chosen[0].n==='Zinc Tablets'&&chosen[0].supplier==='Backup Supplier'&&chosen[0].cost==='','reorder: manually selected item is assigned to chosen supplier even without recorded price history');
