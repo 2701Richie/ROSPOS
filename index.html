@@ -12,7 +12,7 @@
 <script>try{var t=localStorage.getItem('pos-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
-<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="fsb" type="button">Full screen</button><button id="tb" type="button"></button><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
+<header><a class="brand" href="/" aria-label="ROSPOS home"><img src="/logo.svg" alt=""><span>ROS<span class="brand-pos">POS</span><small>PHARMACY POS</small></span></a><nav><button data-t="sell">Sell</button><button data-t="live">Live Sales</button><button data-t="rcp">Receipts</button><button data-t="prod">Products</button><button data-t="rdr" id="rdrb">Reorder</button><button data-t="rep">Reports</button><button data-t="ilog">Inventory Logs</button><button data-t="slog">Sales Logs</button><button data-t="ulog">User Activity</button><button data-t="syslog">System Logs</button><button data-t="acc">Accounts</button><button data-t="set">Settings</button></nav><div style="display:flex;gap:8px;align-items:center"><span id="who"></span><button id="fsb" type="button">Full screen</button><button id="tb" type="button"></button><button id="pwb">Password</button><button id="so">Sign out</button></div></header>
 <main>
 <section id="v-sell" class="two" hidden>
 <div><input id="q" type="search" placeholder="Search products" autocomplete="off" aria-label="Search products"><div id="grid"></div></div>
@@ -54,8 +54,27 @@
 <div class="wrap"><table><thead><tr><th><input type="checkbox" id="pall" aria-label="Select all shown products"></th><th>Name</th><th>Price</th><th>Cost</th><th>Stock</th><th>Expiry</th><th>Status</th><th>Change quantity</th><th></th></tr></thead><tbody id="pt"></tbody></table></div>
 <p class="mu" style="margin-bottom:0">Type a number, then press Add for a delivery or Set to correct the count after a stock check.</p>
 <div id="rm" class="err" role="status"></div></div>
-<div class="card wrap" style="margin-top:16px"><h3>Inventory accountability log</h3><p class="mu" style="margin-top:0">Recent sales and stock changes, including who made them and the reason recorded.</p><table><thead><tr><th>When</th><th>Product</th><th>Change</th><th>By</th><th>Count</th><th>Reason</th></tr></thead><tbody id="rl"></tbody></table></div>
 </div>
+</section>
+<section id="v-ilog" class="log-page" hidden>
+<div class="log-heading"><div><span class="eyebrow">AUDIT TRAIL</span><h2>Inventory Logs</h2><p class="mu">Product edits, stock movements, imports, and bulk operations. Expand an operation to inspect its individual changes.</p></div><button class="pri" data-log-refresh="inventory">Refresh</button></div>
+<div class="log-filters card"><label>Search product, SKU, action, or operation<input id="il-q" type="search" placeholder="e.g. paracetamol, CSV import…" autocomplete="off"></label><label>From<input id="il-from" type="date"></label><label>To<input id="il-to" type="date"></label><label>User<input id="il-user" placeholder="Username or name"></label><label>Status<select id="il-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
+<div class="card log-results"><div class="log-result-head"><b id="il-count">Loading inventory history…</b><span class="mu" id="il-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Action / operation</th><th>Product / reference</th><th>By</th><th>Change</th><th>Status</th><th></th></tr></thead><tbody id="il-list"></tbody></table></div><div class="log-pager"><button id="il-prev" disabled>Previous</button><button id="il-next" disabled>Next</button></div></div>
+</section>
+<section id="v-slog" class="log-page" hidden>
+<div class="log-heading"><div><span class="eyebrow">TRANSACTION HISTORY</span><h2>Sales Logs</h2><p class="mu">Completed sales, voids, and amendments. Original transactions remain traceable.</p></div><button class="pri" data-log-refresh="sales">Refresh</button></div>
+<div class="log-filters card"><label>Search receipt, cashier, or item<input id="sl-q" type="search" placeholder="e.g. receipt 1042…" autocomplete="off"></label><label>From<input id="sl-from" type="date"></label><label>To<input id="sl-to" type="date"></label><label>Cashier / user<input id="sl-user" placeholder="Name"></label><label>Status<select id="sl-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
+<div class="card log-results"><div class="log-result-head"><b id="sl-count">Loading sales history…</b><span class="mu" id="sl-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Transaction</th><th>Receipt / reference</th><th>Cashier</th><th>Total change</th><th>Status</th><th></th></tr></thead><tbody id="sl-list"></tbody></table></div><div class="log-pager"><button id="sl-prev" disabled>Previous</button><button id="sl-next" disabled>Next</button></div></div>
+</section>
+<section id="v-ulog" class="log-page" hidden>
+<div class="log-heading"><div><span class="eyebrow">ACCOUNTABILITY</span><h2>User Activity</h2><p class="mu">Logins, account and role changes, settings changes, and administrative actions.</p></div><button class="pri" data-log-refresh="activity">Refresh</button></div>
+<div class="log-filters card"><label>Search user or action<input id="ul-q" type="search" placeholder="e.g. Login failed…" autocomplete="off"></label><label>From<input id="ul-from" type="date"></label><label>To<input id="ul-to" type="date"></label><label>User<input id="ul-user" placeholder="Username or name"></label><label>Status<select id="ul-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
+<div class="card log-results"><div class="log-result-head"><b id="ul-count">Loading user activity…</b><span class="mu" id="ul-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Activity</th><th>Account / reference</th><th>User</th><th>Details</th><th>Status</th><th></th></tr></thead><tbody id="ul-list"></tbody></table></div><div class="log-pager"><button id="ul-prev" disabled>Previous</button><button id="ul-next" disabled>Next</button></div></div>
+</section>
+<section id="v-syslog" class="log-page" hidden>
+<div class="log-heading"><div><span class="eyebrow">DIAGNOSTICS</span><h2>System Logs</h2><p class="mu">Unexpected server errors and failed persistence checks. Diagnostic details are restricted to authorized roles.</p></div><button class="pri" data-log-refresh="system">Refresh</button></div>
+<div class="log-filters card"><label>Search error or operation<input id="yl-q" type="search" placeholder="e.g. database, import…" autocomplete="off"></label><label>From<input id="yl-from" type="date"></label><label>To<input id="yl-to" type="date"></label><label>User / actor<input id="yl-user" placeholder="Name (if recorded)"></label><label>Status<select id="yl-status"><option value="">All statuses</option><option value="success">Success</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="info">Info</option></select></label></div>
+<div class="card log-results"><div class="log-result-head"><b id="yl-count">Loading system logs…</b><span class="mu" id="yl-page"></span></div><div class="wrap"><table class="log-table"><thead><tr><th>When</th><th>Error / event</th><th>Operation</th><th>Actor</th><th>Details</th><th>Status</th><th></th></tr></thead><tbody id="yl-list"></tbody></table></div><div class="log-pager"><button id="yl-prev" disabled>Previous</button><button id="yl-next" disabled>Next</button></div></div>
 </section>
 <section id="v-acc" hidden>
 <div class="card"><h2>Accounts</h2><p class="mu" style="margin-top:0">Staff can sell and look things up. Managers can also change products and stock and void sales. Owners can also manage accounts and restore backups.</p>
@@ -118,6 +137,7 @@
 <script src="/js/livesales.js"></script>
 <script src="/js/accounts.js"></script>
 <script src="/js/settings.js"></script>
+<script src="/js/logs.js"></script>
 <script src="/js/receipt.js"></script>
 <script src="/js/fullscreen.js"></script>
 <script src="/js/main.js"></script>

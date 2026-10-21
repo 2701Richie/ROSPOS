@@ -4,6 +4,7 @@ Run:  python3 server.py   then open http://<laptop-ip>:8000 on any tablet or PC.
 import getpass, hashlib, hmac, json, math, os, re, secrets, sqlite3, sys, threading, time, traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB", os.path.join(HERE, "data", "pos.db"))
@@ -26,7 +27,27 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 db = sqlite3.connect(DB_PATH, check_same_thread=False)
 db.execute("pragma journal_mode=wal")
 db.execute("create table if not exists kv(k text primary key, v text not null)")
+db.execute("""create table if not exists audit_events(
+    id integer primary key autoincrement,
+    ts text not null,
+    category text not null,
+    action text not null,
+    actor text not null default '',
+    entity_type text not null default '',
+    entity_id text not null default '',
+    entity_name text not null default '',
+    operation_id text not null default '',
+    old_value text,
+    new_value text,
+    details text not null default '{}',
+    status text not null default 'success',
+    source_key text unique
+)""")
+db.execute("create index if not exists audit_events_ts on audit_events(ts desc, id desc)")
+db.execute("create index if not exists audit_events_category_ts on audit_events(category, ts desc, id desc)")
+db.execute("create index if not exists audit_events_operation on audit_events(operation_id)")
 db.commit()
+PENDING_AUDIT_EVENTS = []
 
 
 def get(k, default=None):
@@ -43,7 +64,21 @@ S = get("state") or {"p": [], "s": [], "g": []}
 
 
 def save():
-    put("state", S)
+    """Persist current POS state and queued audit events in the same SQLite transaction."""
+    global PENDING_AUDIT_EVENTS
+    pending = PENDING_AUDIT_EVENTS[:]
+    try:
+        db.execute("begin immediate")
+        db.execute("insert or replace into kv(k,v) values(?,?)", ("state", json.dumps(S)))
+        if pending:
+            db.executemany("""insert or ignore into audit_events
+                (ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key)
+                values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", pending)
+        db.commit()
+        del PENDING_AUDIT_EVENTS[:len(pending)]
+    except Exception:
+        db.rollback()
+        raise
 
 
 def R(n):
@@ -117,8 +152,13 @@ def safe_archive():
         if n:
             print("Archived %d old sale(s) to %s" % (n, ARCHIVE_DIR), flush=True)
         return n
-    except Exception:
+    except Exception as exc:
         traceback.print_exc()
+        try:
+            record_event("system", "Archive operation failed", entity_type="archive", entity_name="Daily archive",
+                         details={"error_type": type(exc).__name__, "message": str(exc)[:500]}, status="failed")
+        except Exception:
+            pass
         return 0
 
 
@@ -176,11 +216,13 @@ def no_cost(d):
 
 
 def pub(actor=None):
-    p, s = S["p"], S["s"]
+    p, s, g = S["p"], S["s"], S["g"]
     if not can_see_cost(actor):
         p = [no_cost(x) for x in p]
         s = [dict(x, l=[no_cost(l) for l in x.get("l", [])]) for x in s]
-    return {"p": p, "s": s, "g": S["g"], "today": now()[0], "cfg": settings()}
+        # Historical cost-change audit rows must not leak through the general state API.
+        g = [x for x in g if "cost" not in str(x.get("k", "")).lower()]
+    return {"p": p, "s": s, "g": g, "today": now()[0], "cfg": settings()}
 
 
 def cost_of(v):
@@ -199,13 +241,164 @@ def set_cost(x, c):
         x["c"] = c
 
 
-def log(n, k, a, z, pid=None, why=""):
+def _json_value(v):
+    return None if v is None else json.dumps(v, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _event_tuple(category, action, actor=None, entity_type="", entity_id="", entity_name="",
+                 operation_id="", old_value=None, new_value=None, details=None, status="success",
+                 ts=None, source_key=None):
+    who = actor if actor is not None else (ACTOR.get("name", "") if ACTOR else "")
+    stamp = ts or datetime.now().astimezone().isoformat(timespec="seconds")
+    if source_key is None:
+        source_key = "event-" + secrets.token_hex(12)
+    return (stamp, category, str(action)[:160], str(who)[:120], str(entity_type)[:60],
+            "" if entity_id is None else str(entity_id)[:120], str(entity_name or "")[:240],
+            str(operation_id or "")[:120], _json_value(old_value), _json_value(new_value),
+            json.dumps(details or {}, ensure_ascii=False, separators=(",", ":"), default=str),
+            status if status in ("success", "failed", "warning", "info") else "info", source_key)
+
+
+def record_event(category, action, **kwargs):
+    """Persist a non-state event immediately (e.g. login and unexpected server errors)."""
+    row = _event_tuple(category, action, **kwargs)
+    with LOCK:
+        db.execute("""insert or ignore into audit_events
+            (ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", row)
+        db.commit()
+
+
+def queue_event(category, action, **kwargs):
+    PENDING_AUDIT_EVENTS.append(_event_tuple(category, action, **kwargs))
+
+
+def new_operation_id(prefix):
+    return "%s-%s-%s" % (prefix, datetime.now().strftime("%Y%m%d%H%M%S"), secrets.token_hex(3))
+
+
+def _legacy_event_key(g):
+    if g.get("eid"):
+        return "legacy-g-id-" + str(g["eid"])
+    raw = json.dumps(g, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    import hashlib as _hashlib
+    return "legacy-g-" + _hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _legacy_timestamp(day, clock):
+    try:
+        return datetime.strptime("%s %s" % (day, clock), "%Y-%m-%d %I:%M %p").astimezone().isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError):
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def migrate_legacy_logs():
+    """Import pre-Log-Center history once; source keys make startup reruns idempotent."""
+    batches = []
+    def add_log(g):
+        if not isinstance(g, dict):
+            return
+        d, t = g.get("d"), g.get("t")
+        stamp = _legacy_timestamp(d, t)
+        action = str(g.get("k", "Legacy inventory event"))
+        category = "activity" if g.get("n") == "Settings" else "inventory"
+        batches.append(_event_tuple(category, action, actor=g.get("u", ""),
+            entity_type="settings" if category == "activity" else "product",
+            entity_id=g.get("i", ""), entity_name=g.get("n", ""),
+            old_value=g.get("a"), new_value=g.get("z"),
+            details={"reason": g.get("w", ""), "migrated": True}, ts=stamp,
+            source_key=_legacy_event_key(g)))
+    for g in S.get("g", []):
+        add_log(g)
+    # Existing daily archives are also part of the permanent searchable history.
+    if os.path.isdir(ARCHIVE_DIR):
+        for name in sorted(os.listdir(ARCHIVE_DIR)):
+            if not re.fullmatch(r"sales-\d{4}-\d{2}-\d{2}\.json", name):
+                continue
+            try:
+                with open(os.path.join(ARCHIVE_DIR, name), "r", encoding="utf-8") as fh:
+                    archive = json.load(fh)
+            except (OSError, ValueError, TypeError):
+                continue
+            for g in archive.get("g", []) if isinstance(archive, dict) else []:
+                add_log(g)
+    if batches:
+        db.executemany("""insert or ignore into audit_events
+            (ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", batches)
+        db.commit()
+
+
+def log(n, k, a, z, pid=None, why="", operation_id="", details=None, audit_values=None):
     d, t = now()
     if pid is None:
         match = next((p for p in S["p"] if p["n"] == n), None)
         pid = match["id"] if match else None
-    S["g"].append({"d": d, "t": t, "n": n, "k": k, "a": a, "z": z,
-                   "u": ACTOR["name"] if ACTOR else "", "i": pid, "w": why})
+    row = {"d": d, "t": t, "n": n, "k": k, "a": a, "z": z,
+           "u": ACTOR["name"] if ACTOR else "", "i": pid, "w": why, "eid": secrets.token_hex(8)}
+    S["g"].append(row)
+    category = "activity" if n == "Settings" else "inventory"
+    audit_old, audit_new = audit_values if audit_values is not None else (a, z)
+    queue_event(category, k, actor=row["u"], entity_type="settings" if category == "activity" else "product",
+        entity_id=pid, entity_name=n, operation_id=operation_id, old_value=audit_old, new_value=audit_new,
+        details=dict({"reason": why} if why else {}, **(details or {})), ts=_legacy_timestamp(d, t), source_key=_legacy_event_key(row))
+
+
+def _sale_source_key(s):
+    return "sale-created-%s" % s.get("no")
+
+
+def _migrate_sale(s, batches):
+    """Prepare legacy sale events for one batched insert during startup."""
+    if not isinstance(s, dict) or not isinstance(s.get("no"), int) or isinstance(s.get("no"), bool):
+        return
+    no = s["no"]
+    ts = _legacy_timestamp(s.get("d"), s.get("t"))
+    batches.append(_event_tuple("sales", "Sale completed", actor=s.get("by", ""), entity_type="sale",
+        entity_id=no, entity_name="Receipt #%s" % no, new_value=s.get("tot"),
+        operation_id="sale-%s" % no, details={"sale": s, "migrated": True}, ts=ts,
+        source_key=_sale_source_key(s)))
+    if s.get("v"):
+        v = s["v"]
+        batches.append(_event_tuple("sales", "Sale voided", actor=v.get("u", ""), entity_type="sale",
+            entity_id=no, entity_name="Receipt #%s" % no, old_value=s.get("tot"), new_value=0,
+            operation_id="sale-%s" % no, details={"reason": v.get("w", ""), "void": v},
+            ts=_legacy_timestamp(v.get("d", s.get("d")), v.get("t", s.get("t"))),
+            source_key="sale-void-%s" % no))
+    for i, h in enumerate(s.get("h", []), 1):
+        batches.append(_event_tuple("sales", "Sale amended", actor=h.get("u", ""), entity_type="sale",
+            entity_id=no, entity_name="Receipt #%s" % no, old_value=h.get("a"), new_value=h.get("z"),
+            operation_id="sale-%s" % no, details={"reason": h.get("w", ""), "change": h},
+            ts=_legacy_timestamp(h.get("d", s.get("d")), h.get("t", s.get("t"))),
+            source_key="sale-change-%s-%s" % (no, i)))
+
+
+def _insert_event_batch(batches):
+    if batches:
+        db.executemany("""insert or ignore into audit_events
+            (ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", batches)
+        db.commit()
+
+
+
+migrate_legacy_logs()
+_legacy_sale_events = []
+for _sale in S.get("s", []):
+    _migrate_sale(_sale, _legacy_sale_events)
+if os.path.isdir(ARCHIVE_DIR):
+    for _name in sorted(os.listdir(ARCHIVE_DIR)):
+        if not re.fullmatch(r"sales-\d{4}-\d{2}-\d{2}\.json", _name):
+            continue
+        try:
+            with open(os.path.join(ARCHIVE_DIR, _name), "r", encoding="utf-8") as _fh:
+                _archive = json.load(_fh)
+        except (OSError, ValueError, TypeError):
+            continue
+        if isinstance(_archive, dict):
+            for _sale in _archive.get("s", []):
+                _migrate_sale(_sale, _legacy_sale_events)
+_insert_event_batch(_legacy_sale_events)
 
 
 def prod(i):
@@ -373,10 +566,13 @@ def r_sale(b, ip):
         p = prod(l["id"])
         old_stock = p["s"]
         p["s"] -= l["q"]
-        log(p["n"], "Sale #%d" % sale_no, old_stock, p["s"], p["id"], "Checkout")
+        log(p["n"], "Sale #%d" % sale_no, old_stock, p["s"], p["id"], "Checkout", operation_id="sale-%s" % sale_no)
     sale = {"no": sale_no, "d": today, "t": t, "l": lines, "tot": tot, "cash": cash,
             "by": ACTOR["name"], "uid": ACTOR["id"]}
     S["s"].append(sale)
+    queue_event("sales", "Sale completed", entity_type="sale", entity_id=sale_no,
+                entity_name="Receipt #%s" % sale_no, operation_id="sale-%s" % sale_no,
+                new_value=tot, details={"sale": sale}, source_key=_sale_source_key(sale))
     save()
     return {"sale": sale if can_see_cost() else dict(sale, l=[no_cost(l) for l in sale["l"]])}
 
@@ -385,7 +581,11 @@ def r_login(b, ip):
     un = str(b.get("username", "")).strip().lower()
     u = find_user(un)
     if not check_pw(u, str(b.get("password", "")), "login|%s|%s" % (ip, un)):
+        record_event("activity", "Login failed", actor=un, entity_type="account", entity_name=un,
+                     details={"remote": ip}, status="failed")
         raise Err(403, "Wrong username or password.")
+    record_event("activity", "Login successful", actor=u["name"], entity_type="account",
+                 entity_id=u["id"], entity_name=u["username"], details={"role": u["role"]})
     return {"me": acct(u), "_session": new_session(u)}
 
 
@@ -403,6 +603,8 @@ def r_setup(b, ip):
     set_pw(u, valid_pw(b.get("password")))
     U.append(u)
     save_users()
+    record_event("activity", "Owner account created", actor=name, entity_type="account",
+                 entity_id=u["id"], entity_name=un, details={"role": "owner"})
     return {"me": acct(u), "_session": new_session(u)}
 
 
@@ -420,10 +622,12 @@ def r_user(b, ip):
         raise Err(400, "Pick a role.")
     if not name:
         raise Err(400, "Enter a name.")
+    creating = not bool(i)
     if i:
         u = user_by_id(i)
         if not u:
             raise Err(404, "Account not found.")
+        before_user = acct(u)
     else:
         if not re.fullmatch(r"[a-z0-9._-]{3,30}", un):
             raise Err(400, "Username must be 3 to 30 letters, numbers, dots, dashes or underscores.")
@@ -445,6 +649,11 @@ def r_user(b, ip):
         for t in [t for t, s in SESSIONS.items() if s["id"] == u["id"]]:
             del SESSIONS[t]
     save_users()
+    record_event("activity", "Account created" if creating else "Account updated", entity_type="account",
+                 entity_id=u["id"], entity_name=u.get("username", un),
+                 old_value=None if creating else before_user,
+                 new_value={"name": u["name"], "role": u["role"], "active": u["active"]},
+                 details={"password_reset": bool(pw)})
     return {"users": [acct(x) for x in U]}
 
 
@@ -453,6 +662,8 @@ def r_mypw(b, ip):
         raise Err(403, "Wrong current password.")
     set_pw(ACTOR, valid_pw(b.get("new")))
     save_users()
+    record_event("activity", "Password changed", entity_type="account", entity_id=ACTOR["id"],
+                 entity_name=ACTOR.get("username", ""), details={"self_service": True})
     return {}
 
 
@@ -468,12 +679,20 @@ def r_product(b, ip):
         x = prod(i)
         if not x:
             raise Err(404, "Product not found.")
+        before_fields = {k: x.get(k) for k in ("n", "p", "c", "e", "m")}
         if R(p) != x["p"]:
             log(x["n"], "Price changed", x["p"], R(p))
         if has_c and c != x.get("c"):
-            log(x["n"], "Cost changed", x.get("c") or 0, c or 0, x["id"])
+            log(x["n"], "Cost changed", x.get("c") or 0, c or 0, x["id"],
+                audit_values=(x.get("c"), c))
             set_cost(x, c)
         x.update(n=n, p=R(p), e=e, m=m)
+        field_names = {"n": "Product name", "e": "Expiry date", "m": "Reorder level"}
+        for field, label in field_names.items():
+            if before_fields.get(field) != x.get(field):
+                queue_event("inventory", label + " changed", entity_type="product", entity_id=x["id"],
+                    entity_name=x["n"], old_value=before_fields.get(field), new_value=x.get(field),
+                    details={"field": field})
     else:
         s, i = nint(b.get("s")), int(time.time() * 1000)
         while prod(i):
@@ -481,6 +700,8 @@ def r_product(b, ip):
         newp = {"id": i, "n": n, "p": R(p), "s": s, "e": e, "m": m}
         set_cost(newp, c)
         S["p"].append(newp)
+        queue_event("inventory", "Product created", entity_type="product", entity_id=i, entity_name=n,
+                    new_value={"name": n, "price": R(p), "cost": c, "stock": s, "reorder": m, "expiry": e})
         if s:
             log(n, "New product +%d" % s, 0, s, i, "Initial stock")
     save()
@@ -495,7 +716,8 @@ def r_delete(b, ip):
     why = str(b.get("why", "")).strip()
     if not why:
         raise Err(400, "Enter a reason for deleting this product.")
-    log(x["n"], "Deleted", x["s"], 0, x["id"], why)
+    log(x["n"], "Deleted", x["s"], 0, x["id"], why,
+        details={"product_snapshot": {k: x.get(k) for k in ("id", "n", "p", "c", "s", "e", "m")}})
     S["p"].remove(x)
     save()
     return {}
@@ -520,8 +742,13 @@ def r_delete_many(b, ip):
         raise Err(404, "A selected product no longer exists. Nothing was deleted.")
     items = [by_id[i] for i in selected]
     snapshot("pre-bulk-delete")
+    operation_id = new_operation_id("bulk-delete")
+    queue_event("inventory", "Bulk deletion started", entity_type="operation", entity_id=operation_id,
+                entity_name="Delete %d products" % len(items), operation_id=operation_id,
+                details={"selected": len(items), "reason": why})
     for x in items:
-        log(x["n"], "Deleted", x["s"], 0, x["id"], why)
+        log(x["n"], "Deleted", x["s"], 0, x["id"], why, operation_id=operation_id,
+            details={"product_snapshot": {k: x.get(k) for k in ("id", "n", "p", "c", "s", "e", "m")}})
     selected_set = set(selected)
     S["p"] = [p for p in S["p"] if p.get("id") not in selected_set]
     save()
@@ -529,7 +756,13 @@ def r_delete_many(b, ip):
     # no longer contains any selected product IDs.
     saved = get("state") or {}
     if any(p.get("id") in selected_set for p in saved.get("p", [])):
+        record_event("system", "Bulk deletion persistence verification failed", entity_type="operation",
+                     entity_id=operation_id, entity_name="Delete products", operation_id=operation_id,
+                     details={"selected": len(items)}, status="failed")
         raise Err(500, "Bulk delete could not be saved. Please retry or contact the owner.")
+    record_event("inventory", "Bulk deletion completed", entity_type="operation", entity_id=operation_id,
+                 entity_name="Delete %d products" % len(items), operation_id=operation_id,
+                 details={"deleted": len(items), "reason": why})
     return {"msg": "Deleted %d product%s." % (len(items), "" if len(items) == 1 else "s")}
 
 
@@ -560,12 +793,12 @@ def find_sale(no):
     return s
 
 
-def put_back(l, d, action, reason=""):
+def put_back(l, d, action, reason="", operation_id=""):
     p = find_prod(l)
     if p:
         o = p["s"]
         p["s"] = max(0, o + d)
-        log(p["n"], action, o, p["s"], p["id"], reason)
+        log(p["n"], action, o, p["s"], p["id"], reason, operation_id=operation_id)
 
 
 def r_void(b, ip):
@@ -576,9 +809,13 @@ def r_void(b, ip):
     if not why:
         raise Err(400, "Enter a reason.")
     for l in s["l"]:
-        put_back(l, l["q"], "Void sale #%d" % s["no"], why)
+        put_back(l, l["q"], "Void sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"])
     d, t = now()
     s["v"] = {"d": d, "t": t, "w": why, "u": ACTOR["name"]}
+    queue_event("sales", "Sale voided", entity_type="sale", entity_id=s["no"],
+                entity_name="Receipt #%s" % s["no"], operation_id="sale-%s" % s["no"],
+                old_value=s.get("tot"), new_value=0,
+                details={"reason": why, "void": s["v"]}, source_key="sale-void-%s" % s["no"])
     save()
     return {}
 
@@ -607,12 +844,17 @@ def r_change(b, ip):
     old, d, t = s["tot"], *now()
     for n, l in zip(q, s["l"]):
         if n != l["q"]:
-            put_back(l, l["q"] - n, "Changed sale #%d" % s["no"], why)
+            put_back(l, l["q"] - n, "Changed sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"])
     s["l"] = [dict(l, q=n) for n, l in zip(q, s["l"]) if n > 0]
     s.update(tot=tot, cash=cash)
     if s.get("dc"):
         s.update(sub=sub, dc=dc)
-    s.setdefault("h", []).append({"d": d, "t": t, "w": why, "a": old, "z": tot, "u": ACTOR["name"]})
+    change_record = {"d": d, "t": t, "w": why, "a": old, "z": tot, "u": ACTOR["name"]}
+    s.setdefault("h", []).append(change_record)
+    queue_event("sales", "Sale amended", entity_type="sale", entity_id=s["no"],
+                entity_name="Receipt #%s" % s["no"], operation_id="sale-%s" % s["no"],
+                old_value=old, new_value=tot, details={"reason": why, "change": change_record},
+                source_key="sale-change-%s-%s" % (s["no"], len(s["h"])))
     save()
     return {}
 
@@ -642,11 +884,33 @@ def r_restore(b, ip):
         raise Err(400, "The backup contains an invalid sale record.")
     if any(not isinstance(x, dict) for x in d.get("g", [])):
         raise Err(400, "The backup contains an invalid activity record.")
+    audit = d.get("logs", [])
+    if not isinstance(audit, list) or len(audit) > 1_000_000:
+        raise Err(400, "This backup has invalid or excessive log history.")
+    imported_events = []
+    for item in audit:
+        if (not isinstance(item, dict) or item.get("category") not in ("inventory", "sales", "activity", "system")
+                or not isinstance(item.get("ts"), str) or len(item["ts"]) > 64
+                or not isinstance(item.get("action"), str) or len(item["action"]) > 160
+                or not isinstance(item.get("actor", ""), str)
+                or not isinstance(item.get("details", {}), dict)
+                or item.get("status", "success") not in ("success", "failed", "warning", "info")):
+            raise Err(400, "The backup contains an invalid log record.")
+        fingerprint = json.dumps({k: item.get(k) for k in ("ts", "category", "action", "actor", "entity_type", "entity_id", "entity_name", "operation_id", "old_value", "new_value", "details", "status")}, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+        source_key = item.get("source_key") or ("restored-" + hashlib.sha256((str(item.get("id", "")) + fingerprint).encode("utf-8")).hexdigest())
+        imported_events.append(_event_tuple(item["category"], item["action"], actor=item.get("actor", ""),
+            entity_type=item.get("entity_type", ""), entity_id=item.get("entity_id", ""),
+            entity_name=item.get("entity_name", ""), operation_id=item.get("operation_id", ""),
+            old_value=item.get("old_value"), new_value=item.get("new_value"), details=item.get("details", {}),
+            status=item.get("status", "success"), ts=item["ts"], source_key=source_key))
     # Keep an immediate database-level recovery point before replacing live data.
     snapshot("pre-restore")
+    PENDING_AUDIT_EVENTS.extend(imported_events)
     S = {"p": d["p"], "s": d["s"], "g": d.get("g", [])}
     put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
     safe_archive()
+    queue_event("activity", "Backup restored", entity_type="backup", entity_name="Backup restore",
+                details={"products": len(S["p"]), "sales": len(S["s"]), "reason": "Owner-confirmed restore"})
     save()
     return {"msg": "Backup restored successfully."}
 
@@ -766,7 +1030,18 @@ def r_import(b, ip):
             "errorCount": len(errors), "changes": changes[:200], "more": max(0, len(changes) - 200),
             "notes": notes[:50], "applied": False}
     if errors or not b.get("apply"):
+        if errors:
+            opid = new_operation_id("csv-import")
+            by_row = {}
+            for issue in errors:
+                by_row.setdefault(issue["row"], []).append(issue["msg"])
+            record_event("inventory", "CSV import validation failed", entity_type="import", entity_id=opid,
+                entity_name="CSV import (%s)" % mode, operation_id=opid,
+                details={"mode": mode, "rows": len(rows), "error_count": len(errors),
+                         "failed_rows": len(by_row), "errors": [{"row": row, "messages": msgs} for row, msgs in sorted(by_row.items())],
+                         "apply_requested": bool(b.get("apply")), "reason": why}, status="failed")
         return {"plan": plan}
+    operation_id = new_operation_id("csv-import")
     snapshot("pre-import")
     for p, name, price, reorder, qty, cost in ops:
         if mode == "products":
@@ -775,23 +1050,35 @@ def r_import(b, ip):
                 newp = {"id": new_id(), "n": name, "p": R(price), "s": s, "e": "", "m": int(reorder or 0)}
                 set_cost(newp, None if cost is None else R(cost))
                 S["p"].append(newp)
+                queue_event("inventory", "Product created", entity_type="product", entity_id=newp["id"],
+                    entity_name=name, operation_id=operation_id,
+                    new_value={"id": newp["id"], "n": name, "p": newp["p"], "c": newp.get("c"), "s": s, "m": newp["m"], "e": newp["e"]},
+                    details={"reason": why})
                 if s:
-                    log(name, "New product +%d" % s, 0, s, S["p"][-1]["id"], why)
+                    log(name, "New product +%d" % s, 0, s, S["p"][-1]["id"], why, operation_id=operation_id)
             else:
                 if price is not None and R(price) != p["p"]:
-                    log(p["n"], "Price changed", p["p"], R(price), p["id"], why)
+                    log(p["n"], "Price changed", p["p"], R(price), p["id"], why, operation_id=operation_id)
                     p["p"] = R(price)
-                if reorder is not None:
+                if reorder is not None and int(reorder) != p["m"]:
+                    queue_event("inventory", "Reorder level changed", entity_type="product", entity_id=p["id"],
+                        entity_name=p["n"], operation_id=operation_id, old_value=p["m"], new_value=int(reorder),
+                        details={"field": "m", "reason": why})
                     p["m"] = int(reorder)
                 if cost is not None and R(cost) != p.get("c"):
-                    log(p["n"], "Cost changed", p.get("c") or 0, R(cost), p["id"], why)
+                    log(p["n"], "Cost changed", p.get("c") or 0, R(cost), p["id"], why,
+                        operation_id=operation_id, audit_values=(p.get("c"), R(cost)))
                     p["c"] = R(cost)
         else:
             o = p["s"]
             z = o + int(qty) if mode == "add" else int(qty)
             if z != o:
                 p["s"] = z
-                log(p["n"], "Import: received +%d" % int(qty) if mode == "add" else "Import: count set", o, z, p["id"], why)
+                log(p["n"], "Import: received +%d" % int(qty) if mode == "add" else "Import: count set", o, z, p["id"], why, operation_id=operation_id)
+    queue_event("inventory", "CSV import completed", entity_type="import", entity_id=operation_id,
+        entity_name="CSV import (%s)" % mode, operation_id=operation_id,
+        details={"mode": mode, "rows": len(rows), "added": new, "updated": upd,
+                 "unchanged": same, "failed": 0, "reason": why})
     save()
     plan["applied"] = True
     return {"plan": plan}
@@ -869,7 +1156,84 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        page = self.path.split("?")[0]
+        parsed = urlsplit(self.path)
+        page = parsed.path
+        if page == "/api/logs":
+            with LOCK:
+                u, _ = session_user(self)
+                if not u:
+                    return self.send(401, {"error": "Please sign in."})
+                if ROLES.get(u.get("role", "staff"), 0) < ROLES["manager"]:
+                    return self.send(403, {"error": "Logs are available to authorized managers and owners only."})
+                q = parse_qs(parsed.query)
+                category = (q.get("category", [""])[0] or "").strip()
+                if category not in ("inventory", "sales", "activity", "system"):
+                    return self.send(400, {"error": "Choose a valid log category."})
+                search = (q.get("q", [""])[0] or "").strip()[:160]
+                actor = (q.get("user", [""])[0] or "").strip()[:120]
+                status = (q.get("status", [""])[0] or "").strip()
+                start = (q.get("from", [""])[0] or "").strip()
+                end = (q.get("to", [""])[0] or "").strip()
+                try:
+                    limit = max(1, min(100, int(q.get("limit", ["50"])[0])))
+                    offset = max(0, min(10_000_000, int(q.get("offset", ["0"])[0])))
+                except (ValueError, TypeError):
+                    return self.send(400, {"error": "Invalid pagination."})
+                operation_id = (q.get("operation_id", [""])[0] or "").strip()[:120]
+                def decode_rows(rows):
+                    keys = ("id", "ts", "category", "action", "actor", "entity_type", "entity_id", "entity_name", "operation_id", "old_value", "new_value", "details", "status")
+                    items = []
+                    for row in rows:
+                        item = dict(zip(keys, row))
+                        for key in ("old_value", "new_value", "details"):
+                            try:
+                                item[key] = json.loads(item[key]) if item[key] is not None else None
+                            except (ValueError, TypeError):
+                                pass
+                        items.append(item)
+                    return items
+                if operation_id:
+                    where = "category=? and operation_id=?"
+                    args = [category, operation_id]
+                    total = db.execute("select count(*) from audit_events where " + where, args).fetchone()[0]
+                    rows = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where " + where + " order by ts desc,id desc limit ? offset ?", args + [limit, offset]).fetchall()
+                    return self.send(200, {"items": decode_rows(rows), "total": total, "limit": limit, "offset": offset, "operation_id": operation_id})
+                where, args = ["category=?"], [category]
+                if search:
+                    like = "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+                    where.append("(action like ? escape '\\' or actor like ? escape '\\' or entity_name like ? escape '\\' or entity_id like ? escape '\\' or operation_id like ? escape '\\' or details like ? escape '\\' or old_value like ? escape '\\' or new_value like ? escape '\\')")
+                    args.extend([like] * 8)
+                if actor:
+                    where.append("actor like ?")
+                    args.append("%" + actor + "%")
+                if status in ("success", "failed", "warning", "info"):
+                    where.append("status=?")
+                    args.append(status)
+                if start and re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
+                    where.append("substr(ts,1,10)>=?")
+                    args.append(start)
+                if end and re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+                    where.append("substr(ts,1,10)<=?")
+                    args.append(end)
+                clause = " and ".join(where)
+                group_expr = "case when operation_id<>'' then operation_id else 'event-'||id end"
+                total = db.execute("select count(*) from (select " + group_expr + " as gkey from audit_events where " + clause + " group by gkey)", args).fetchone()[0]
+                groups = db.execute("select " + group_expr + " as gkey,max(ts) as last_ts,max(id) as last_id,count(*) as event_count from audit_events where " + clause + " group by gkey order by last_ts desc,last_id desc limit ? offset ?", args + [limit, offset]).fetchall()
+                items = []
+                for gkey, last_ts, last_id, count in groups:
+                    if str(gkey).startswith("event-"):
+                        row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where id=?", (int(str(gkey)[6:]),)).fetchall()
+                    else:
+                        row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where category=? and operation_id=? order by id desc limit 1", (category, gkey)).fetchall()
+                    decoded = decode_rows(row)
+                    if not decoded:
+                        continue
+                    item = decoded[0]
+                    item["event_count"] = (db.execute("select count(*) from audit_events where category=? and operation_id=?", (category, gkey)).fetchone()[0]
+                                            if not str(gkey).startswith("event-") else 1)
+                    item["group_id"] = str(gkey) if not str(gkey).startswith("event-") else ""
+                    items.append(item)
+                return self.send(200, {"items": items, "total": total, "limit": limit, "offset": offset})
         if page == "/api/backup":
             with LOCK:
                 u, _ = session_user(self)
@@ -877,9 +1241,23 @@ class H(BaseHTTPRequestHandler):
                     return self.send(401, {"error": "Please sign in."})
                 if u.get("role") != "owner":
                     return self.send(403, {"error": "Only the owner can download a full backup."})
-                payload = {"format": "ROSPOS-backup", "version": 1,
+                audit_rows = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key from audit_events order by id").fetchall()
+                audit_logs = []
+                for row in audit_rows:
+                    keys = ("id", "ts", "category", "action", "actor", "entity_type", "entity_id", "entity_name", "operation_id", "old_value", "new_value", "details", "status", "source_key")
+                    item = dict(zip(keys, row))
+                    for key in ("old_value", "new_value", "details"):
+                        try:
+                            item[key] = json.loads(item[key]) if item[key] is not None else None
+                        except (ValueError, TypeError):
+                            pass
+                    if not item["source_key"]:
+                        fingerprint = json.dumps({k: item.get(k) for k in ("ts", "category", "action", "actor", "entity_type", "entity_id", "entity_name", "operation_id", "old_value", "new_value", "details", "status")}, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+                        item["source_key"] = "backup-export-" + hashlib.sha256((str(item["id"]) + fingerprint).encode("utf-8")).hexdigest()
+                    audit_logs.append(item)
+                payload = {"format": "ROSPOS-backup", "version": 2,
                            "createdAt": datetime.now().astimezone().isoformat(timespec="seconds"),
-                           "data": {"p": S["p"], "s": S["s"], "g": S["g"]}}
+                           "data": {"p": S["p"], "s": S["s"], "g": S["g"], "logs": audit_logs}}
                 filename = "rospos-backup-%s.json" % datetime.now().strftime("%Y-%m-%d-%H%M%S")
                 body = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                 return self.send(200, body=body, ctype="application/json; charset=utf-8",
@@ -907,7 +1285,8 @@ class H(BaseHTTPRequestHandler):
             if self.headers.get("X-Requested-With") != "pos":
                 raise Err(403, "Bad request origin.")
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 20_000_000:
+            max_body = 100_000_000 if urlsplit(self.path).path == "/api/restore" else 20_000_000
+            if n > max_body:
                 raise Err(413, "Request too large.")
             b = json.loads(self.rfile.read(n) or b"{}", parse_constant=_no_constant, parse_float=_finite_float)
             ip = self.client_address[0]
@@ -918,7 +1297,11 @@ class H(BaseHTTPRequestHandler):
                         out = PUBLIC[self.path](b, ip)
                         out["state"] = pub(out.get("me"))
                     elif self.path == "/api/logout":
-                        SESSIONS.pop(session_user(self)[1], None)
+                        logout_user, token = session_user(self)
+                        SESSIONS.pop(token, None)
+                        if logout_user:
+                            record_event("activity", "Logout", actor=logout_user["name"], entity_type="account",
+                                         entity_id=logout_user["id"], entity_name=logout_user["username"])
                         out = {"_clear": True}
                     else:
                         fn = ROUTES.get(self.path)
@@ -941,8 +1324,15 @@ class H(BaseHTTPRequestHandler):
             self.send(e.code, {"error": e.msg})
         except (ValueError, KeyError, TypeError, AttributeError):
             self.send(400, {"error": "Bad request."})
-        except Exception:
+        except Exception as exc:
+            trace = traceback.format_exc()
             traceback.print_exc()
+            try:
+                record_event("system", "Unhandled server exception", entity_type="http", entity_name=urlsplit(self.path).path,
+                    details={"path": urlsplit(self.path).path, "error_type": type(exc).__name__,
+                             "message": str(exc)[:500], "traceback": trace[-4000:]}, status="failed")
+            except Exception:
+                pass
             self.send(500, {"error": "Server error. See the server log."})
 
 
@@ -962,8 +1352,13 @@ def backup_loop():
             keep = settings()["backup_days"]
             for old in sorted(x for x in os.listdir(BACKUP_DIR) if x.startswith("pos-") and x.endswith(".db"))[:-keep]:
                 os.remove(os.path.join(BACKUP_DIR, old))
-        except Exception:
+        except Exception as exc:
             traceback.print_exc()
+            try:
+                record_event("system", "Automatic backup failed", entity_type="backup", entity_name="Hourly backup",
+                             details={"error_type": type(exc).__name__, "message": str(exc)[:500]}, status="failed")
+            except Exception:
+                pass
         time.sleep(3600)
 
 

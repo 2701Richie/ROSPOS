@@ -1,6 +1,6 @@
 # NOTES: ROSPOS
 
-Internal stock and sales counting tool. Python server on the store laptop, screens in the browser. For setup see README.md.
+Internal stock and sales counting tool. Python server on the main PC or store machine, screens in the browser. For setup see README.md.
 
 ## Start here (agents: read only this section, then just the files your task needs)
 
@@ -15,7 +15,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | Task | Read |
 |---|---|
 | Rule, data or endpoint change | `server.py`: find the `r_<operation>` function with `grep -n "^def r_" server.py`, read only that slice |
-| Screen or behaviour of one tab | `js/<tab>.js` (sell, products, receipts, reorder, reports, livesales, import, accounts, settings) |
+| Screen or behaviour of one tab | `js/<tab>.js` (sell, products, receipts, reorder, reports, livesales, import, logs, accounts, settings) |
 | Shared state, `api()`, sign-in, roles | `js/core.js` |
 | Layout, popups, tab order | `index.html` (structure only) |
 | Look, dark mode, phones | `style.css`: search `grep -n "^/\*" style.css` for the section, phone rules are near the end |
@@ -25,7 +25,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 **Run the tests (one command, prints one line, then only failures):**
 - `python3 tests/run.py` tests the working tree including uncommitted edits.
 - `python3 tests/run.py --clone` clones GitHub and tests that (run it after every push).
-- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/receipt_settings_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
+- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/receipt_settings_test.py`, `tests/logs_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
 - Add a test for every new rule: put `ok   ...` / `FAIL ...` lines in a new `tests/*_test.py` and add its name to `run.py`.
 
 **Screenshots (only for visual work):** the harness lives outside the repo, in `pos-tests/demo` next to the project folder. `bash pos-tests/demo/shoot.sh` copies the front-end, injects fake data (`demo.js`), serves it on port 8077 and saves PNGs in `/tmp/shots` with headless chromium. URL knobs: `?tab=sell|live|rep|set|receipt&taps=0|1|2` (taps = theme button presses). Look at one image, not all.
@@ -46,7 +46,8 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 | `style.css` | All styling, light and dark |
 | `js/core.js` | Shared state `S`, helpers (`R`, `M`, `esc`, `tags`), `api()`, `load()`, `show(tab)`, sign-in screen and role checks (`can()`) |
 | `js/sell.js` | Sell tab: `drawGrid`, cart (`drawLines`, `add`, `setQty` typed quantity on a cart line), checkout (`#pay`), `clampCart` |
-| `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, Cost box and Cost column, tick boxes with bulk delete (`sel`), stock log with who made each change |
+| `js/products.js` | Products tab (managers and owners): add/edit form, quantity Add/Set, Cost box and Cost column, tick boxes with grouped bulk delete (`sel`); detailed history is in Inventory Logs |
+| `js/logs.js` | Separate Inventory Logs, Sales Logs, User Activity, and System Logs pages; shared search/date/user/status filters, grouped operations, expandable details, and paginated history |
 | `js/accounts.js` | Accounts tab (owner): add accounts, roles, reset password, disable |
 | `js/settings.js` | Settings tab (owner): store name, receipt address/phone/tagline/footer with a live receipt preview and Test slip, stay-signed-in hours, backup days kept. Also `storeName()` and `applyBrand()` used for the header, order list and receipt, and the theme button in the header (every role, this device only: Automatic, Light, Dark; saved in the browser as `pos-theme`, applied early by a script in `index.html`) |
 | `js/import.js` | CSV import (preview, apply; optional `cost` column), export products, download template. Parsing happens in the browser, rules in `r_import` |
@@ -60,7 +61,7 @@ Internal stock and sales counting tool. Python server on the store laptop, scree
 
 Scripts are plain (not modules) and share one global scope. Load order is in `index.html`.
 
-## Data shapes (all in `S` on the client, one JSON blob on the server)
+## Data shapes (operational state in `S`; long-term audit history in SQLite `audit_events`)
 
 - Product: `{id, n:name, p:price, s:stock, e:"YYYY-MM-DD" or "", m:reorder level, c?:cost per unit}`. `c` is optional: missing means cost unknown, 0 is a real zero. Managers and owners only: the server removes `c` from every reply sent to staff.
 - Sale: `{no, d:date, t:time, l:[{id,n,q,p,c?}], tot, cash, by:name, uid, v?:{d,t,w,u}, h?:[{d,t,w,a,z,u}]}`. `v` means void, `h` is change history, `w` is the reason, `u` is who. Line `c` is the product's cost at the time of sale (only when it was known), so later cost changes never alter old sales or profit. Sales from older versions may also carry `sub`, `dc`, `dl` (a discount).
@@ -76,9 +77,10 @@ Sessions use an HttpOnly cookie (`pos_session`, SameSite=Strict, 12 hours, `POS_
 | GET `/api/me` | anyone | `{setup, me}`; `setup` is true until the owner account exists |
 | `/api/setup` | anyone, needs the setup code from the server log | Creates the first owner account |
 | `/api/login`, `/api/logout` | anyone / signed in | Sign in and out. 5 wrong tries lock that device and username for a minute |
-| GET `/api/state` | signed in | Current state and `me` |
+| GET `/api/state` | signed in | Current state and `me`; cost-change rows are omitted from staff state responses |
+| GET `/api/logs?category=inventory\|sales\|activity\|system` | manager and owner | Searchable, paginated structured logs; operation details can be loaded by `operation_id`. Staff are denied server-side |
 | `/api/sale` | staff and up | Server checks stock and expiry, prices from its own list, reduces stock |
-| `/api/product`, `/api/delete`, `/api/delete-many`, `/api/stock`, `/api/import` | manager and up | Product and stock edits. `product` takes optional `c` (blank = unknown; a request without `c` keeps the cost); `import` takes an optional `cost` column (blank cell keeps the cost). `delete-many`: `ids` list (1 to 1000) plus `why`; all or nothing; one audit row per product; copy in `backups/pre-bulk-delete-*.db`. Import: mode `products`, `add` or `set`; `apply:false` previews, `apply:true` saves after a copy in `backups/pre-import-*.db`; all or nothing |
+| `/api/product`, `/api/delete`, `/api/delete-many`, `/api/stock`, `/api/import` | manager and up | Product and stock edits. `product` takes optional `c` (blank = unknown; a request without `c` keeps the cost); `import` takes an optional `cost` column (blank cell keeps the cost). `delete-many`: `ids` list (1 to 100000) plus `why`; all or nothing; one audit row per product; copy in `backups/pre-bulk-delete-*.db`. Import: mode `products`, `add` or `set`; `apply:false` previews, `apply:true` saves after a copy in `backups/pre-import-*.db`; all or nothing |
 | `/api/void`, `/api/change` | manager and up, plus `password` of the signed-in user in the request | Void or amend a sale |
 | `/api/restore` | owner, plus `password` | Restore a backup |
 | `/api/users`, `/api/user` | owner | List, add, edit, disable accounts (always one active owner) |
@@ -89,7 +91,9 @@ Errors come back as `{error}`.
 
 ## Rules already decided
 
-- Roles: staff sell, view and reprint receipts, and see the Reorder list. Managers also change products and stock, import CSV, see Reports and Live Sales, and void or change sales (re-entering their own password). Owners also manage accounts, settings and restore backups. The server enforces this; hiding tabs is only for tidiness.
+- Roles: staff sell, view and reprint receipts, and see the Reorder list. Managers also change products and stock, import CSV, see Reports and Live Sales, use all four Log Center pages, and void or change sales (re-entering their own password). Owners also manage accounts, settings and restore backups. The server enforces log permissions; hiding tabs is only for tidiness. Staff activity is recorded without giving staff log-page access. Product cost history is restricted to manager/owner roles.
+- Log Center pages are separate: Inventory Logs (product field changes, stock movements, CSV imports, deletions), Sales Logs (sales/voids/amendments), User Activity (logins, account/role/settings changes, backup restores), and System Logs (unhandled server errors, failed archive/backup jobs, persistence verification failures). Bulk actions share an operation ID and expand to paginated item-level details; sale-related inventory movements share the sale operation ID. CSV validation failures retain grouped row-level errors.
+- Audit events are retained long-term with no age-based auto-deletion. Existing hot-state and daily-archive audit/sales history is imported idempotently on startup. Database/hourly backups include `audit_events`; manual JSON backups export log history too, and restoring a JSON backup merges retained log records instead of deleting current history. Cleanup, if ever added, must be explicitly authorized and itself logged.
 - Every sale, stock change, price change, void and change records the signed-in person's name. Checkout stock reductions are recorded in the inventory accountability log. Product deletion and CSV imports require a reason; routine stock changes are logged with an automatic description.
 - No discounts and no VAT: the price is the price. Old sales from earlier versions may still show a discount.
 - Expired products can't be sold. Selling past stock is refused. Expiry date is optional per product; blank means never flagged or blocked.

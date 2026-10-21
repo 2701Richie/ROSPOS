@@ -1,9 +1,9 @@
-// products.js: Products tab (managers and owners): add/edit form, quantity Add/Set, stock log
+// products.js: Products tab (managers and owners): add/edit form, quantity Add/Set, bulk actions
 let sel=new Set();
 function drawProd(){sel=new Set([...sel].filter(id=>S.p.some(p=>p.id===id)));const q=$('#ps').value.trim().toLowerCase(),all=[...S.p].sort((a,b)=>a.n.localeCompare(b.n)),l=all.filter(p=>!q||p.n.toLowerCase().includes(q));
 $('#pc').textContent='Showing '+l.length+' of '+all.length+' products';
 $('#pt').innerHTML=l.map(p=>`<tr><td><input type="checkbox" class="pk" data-id="${p.id}" aria-label="Select ${esc(p.n)}"${sel.has(p.id)?' checked':''}></td><td>${esc(p.n)}</td><td>${M(p.p)}</td><td>${p.c==null?'<span class="mu">—</span>':M(p.c)}</td><td><b>${p.s}</b></td><td>${p.e||'—'}</td><td>${tags(p)}</td><td style="white-space:nowrap"><input class="qv" inputmode="numeric" style="width:84px" aria-label="Quantity for ${esc(p.n)}"> <button class="pri" data-a="add" data-id="${p.id}">Add</button> <button data-a="set" data-id="${p.id}">Set</button></td><td style="white-space:nowrap"><button data-e="${p.id}">Edit</button> <button data-x="${p.id}">Delete</button><span class="delbox" hidden><input class="dwhy" placeholder="Reason required" aria-label="Reason for deleting ${esc(p.n)}" style="width:130px"><button data-confirm-delete="${p.id}">Confirm</button><button data-cancel-delete>Cancel</button></span></td></tr>`).join('')||'<tr><td colspan="9" class="mu">No products found.</td></tr>';
-$('#rl').innerHTML=S.g.slice(-50).reverse().map(g=>`<tr><td>${g.d} ${g.t}</td><td>${esc(g.n)}</td><td>${esc(g.k)}</td><td>${esc(g.u||'')}</td><td>${g.a} → ${g.z}</td><td>${esc(g.w||'—')}</td></tr>`).join('')||'<tr><td colspan="6" class="mu">No stock changes yet.</td></tr>';drawBulk()}
+drawBulk()}
 function shown(){const q=$('#ps').value.trim().toLowerCase();return S.p.filter(p=>!q||p.n.toLowerCase().includes(q))}
 function drawBulk(){const n=sel.size,l=shown(),a=$('#pall');$('#bulk').hidden=!n;$('#bn').textContent=n+' selected';a.checked=l.length>0&&l.every(p=>sel.has(p.id));a.indeterminate=!a.checked&&l.some(p=>sel.has(p.id))}
 function clearForm(){edit=null;['fn','fp','fc','fe','fm','fs'].forEach(i=>$('#'+i).value='');$('#fsl').hidden=false;$('#sv').textContent='Save product';$('#fmsg').textContent=''}
