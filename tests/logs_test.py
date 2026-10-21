@@ -33,7 +33,7 @@ ok(all("cost" not in x.get("k","").lower() for x in srv.pub(actor("staff",3))["g
 plan=srv.r_import({"mode":"products","apply":True,"why":"test import","rows":[{"name":"Imported Item","price":"7","quantity":"2","reorder":"1","cost":"2"}]},"test")["plan"]
 op=srv.db.execute("select operation_id from audit_events where action='CSV import completed' order by id desc limit 1").fetchone()
 ok(plan["applied"] and op and srv.db.execute("select count(*) from audit_events where operation_id=?",op).fetchone()[0]>=2,"L5 CSV summary groups individual product changes under one operation ID")
-srv.r_import({"mode":"products","apply":False,"rows":[{"name":"Bad Item","price":"not-a-price","quantity":"1"}]},"test")
+srv.r_import({"mode":"products","apply":True,"why":"test failed import","rows":[{"name":"Bad Item","price":"not-a-price","quantity":"1"}]},"test")
 failed=srv.db.execute("select details,status from audit_events where action='CSV import validation failed' order by id desc limit 1").fetchone()
 ok(failed and failed[1]=="failed" and json.loads(failed[0]).get("errors"),"L6 failed CSV validation stores row-level error details")
 # A sale and its stock movement share an operation reference.

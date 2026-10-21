@@ -102,6 +102,19 @@ def valid_day(d):
     return isinstance(d, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
 
 
+def valid_expiry(e):
+    """Blank (no expiry) or a real YYYY-MM-DD date. Anything else is refused so it can never block sales or reach the page as HTML."""
+    if e == "":
+        return True
+    if not valid_day(e):
+        return False
+    try:
+        datetime.strptime(e, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
 def max_sale_no(rows):
     """Highest whole-number sale no in rows; ignores rows with a missing or odd no."""
     return max((x["no"] for x in rows if isinstance(x, dict) and isinstance(x.get("no"), int)
@@ -454,6 +467,7 @@ ROLES = {"staff": 1, "manager": 2, "owner": 3}
 SESSION_HOURS = float(os.environ.get("POS_SESSION_HOURS", "12"))
 SESSIONS, FAILS = {}, {}
 ACTOR = None
+TOKEN = None  # session token of the request being handled (like ACTOR, only set during POST handlers)
 U = get("users") or []
 SETUP_CODE = secrets.token_hex(3).upper() if not U else None
 
@@ -484,6 +498,8 @@ def throttle(key):
 
 
 def miss(key):
+    if len(FAILS) > 5000:  # attackers can invent endless keys; keep memory bounded
+        FAILS.clear()
     n = FAILS.get(key, (0, 0))[0] + 1
     FAILS[key] = (0, time.time() + 60) if n >= 5 else (n, 0)
 
@@ -493,6 +509,8 @@ def check_pw(u, pw, key):
     if u and u.get("active", True) and hmac.compare_digest(hash_pw(pw, u["salt"]), u["hash"]):
         FAILS.pop(key, None)
         return True
+    if not u:
+        hash_pw(pw, "00" * 16)  # same work as a real check, so response time does not reveal which usernames exist
     miss(key)
     return False
 
@@ -524,6 +542,8 @@ def reauth(ip, b, role="manager"):
 
 def new_session(u):
     t = secrets.token_hex(24)
+    for old in [k for k, v in SESSIONS.items() if v["exp"] <= time.time()]:
+        del SESSIONS[old]
     SESSIONS[t] = {"id": u["id"], "exp": time.time() + settings()["session_hours"] * 3600}
     return t
 
@@ -542,7 +562,23 @@ def session_user(handler):
 
 
 # ---- operations (each one runs under LOCK and changes nothing if it fails) ---
+RECENT_SALES = {}  # (user id, request id) -> sale no; lets a retried request return the sale already recorded
+
+
+def sale_out(sale):
+    return {"sale": sale if can_see_cost() else dict(sale, l=[no_cost(l) for l in sale["l"]])}
+
+
 def r_sale(b, ip):
+    rid = b.get("rid")
+    if rid is not None:
+        if not isinstance(rid, str) or not 8 <= len(rid) <= 64:
+            raise Err(400, "Bad request.")
+        prior = RECENT_SALES.get((ACTOR["id"], rid))
+        if prior is not None:
+            done = next((x for x in S["s"] if x.get("no") == prior), None)
+            if done:
+                return sale_out(done)
     agg = {}
     for l in b.get("lines") or []:
         q = l.get("q")
@@ -582,7 +618,11 @@ def r_sale(b, ip):
                 entity_name="Receipt #%s" % sale_no, operation_id="sale-%s" % sale_no,
                 new_value=tot, details={"sale": sale}, source_key=_sale_source_key(sale))
     save()
-    return {"sale": sale if can_see_cost() else dict(sale, l=[no_cost(l) for l in sale["l"]])}
+    if rid is not None:
+        if len(RECENT_SALES) > 2000:
+            RECENT_SALES.clear()
+        RECENT_SALES[(ACTOR["id"], rid)] = sale_no
+    return sale_out(sale)
 
 
 def r_login(b, ip):
@@ -669,6 +709,8 @@ def r_mypw(b, ip):
     if not check_pw(ACTOR, str(b.get("old", "")), "pw|%s|%s" % (ip, ACTOR["id"])):
         raise Err(403, "Wrong current password.")
     set_pw(ACTOR, valid_pw(b.get("new")))
+    for t in [t for t, v in SESSIONS.items() if v["id"] == ACTOR["id"] and t != TOKEN]:
+        del SESSIONS[t]  # other tablets signed in as this user must sign in again with the new password
     save_users()
     record_event("activity", "Password changed", entity_type="account", entity_id=ACTOR["id"],
                  entity_name=ACTOR.get("username", ""), details={"self_service": True})
@@ -680,7 +722,16 @@ def r_product(b, ip):
     n, p = str(b.get("n", "")).strip(), b.get("p")
     if not n or not good_num(p):
         raise Err(400, "Enter a product name and a valid price.")
-    e, m, i = str(b.get("e") or ""), nint(b.get("m")), b.get("id")
+    e, m, i = str(b.get("e") or "").strip(), nint(b.get("m")), b.get("id")
+    if not valid_expiry(e):
+        raise Err(400, "Enter a valid expiry date, or leave it blank.")
+    if len(n) > 200:
+        raise Err(400, "Product name must be 200 characters or fewer.")
+    k, own = key(n), (prod(i) if i else None)
+    if k and not (i and not own):
+        clash = next((p for p in S["p"] if p is not own and key(p["n"]) == k), None)
+        if clash and (own is None or key(own["n"]) != k):  # an old duplicate may still be edited without renaming it
+            raise Err(409, "A product named '%s' already exists." % clash["n"])
     has_c = "c" in b
     c = cost_of(b.get("c")) if has_c else None  # checked before anything changes
     if i:
@@ -807,6 +858,14 @@ def put_back(l, d, action, reason="", operation_id=""):
         o = p["s"]
         p["s"] = max(0, o + d)
         log(p["n"], action, o, p["s"], p["id"], reason, operation_id=operation_id)
+    return bool(p)
+
+
+def warn_not_restored(s, names, what):
+    """The product was deleted after the sale, so its stock cannot be put back. Say so in the log instead of staying silent."""
+    queue_event("sales", "Stock not restored (%s)" % what, entity_type="sale", entity_id=s["no"],
+                entity_name="Receipt #%s" % s["no"], operation_id="sale-%s" % s["no"],
+                details={"products": names, "reason": "Product no longer exists"}, status="warning")
 
 
 def r_void(b, ip):
@@ -816,15 +875,18 @@ def r_void(b, ip):
         raise Err(409, "This sale is already void.")
     if not why:
         raise Err(400, "Enter a reason.")
-    for l in s["l"]:
-        put_back(l, l["q"], "Void sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"])
+    gone = [l["n"] for l in s["l"] if not put_back(l, l["q"], "Void sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"])]
     d, t = now()
     s["v"] = {"d": d, "t": t, "w": why, "u": ACTOR["name"]}
     queue_event("sales", "Sale voided", entity_type="sale", entity_id=s["no"],
                 entity_name="Receipt #%s" % s["no"], operation_id="sale-%s" % s["no"],
                 old_value=s.get("tot"), new_value=0,
                 details={"reason": why, "void": s["v"]}, source_key="sale-void-%s" % s["no"])
+    if gone:
+        warn_not_restored(s, gone, "void")
     save()
+    if gone:
+        return {"msg": "Sale voided. Stock was not restored for deleted products: %s." % ", ".join(gone)}
     return {}
 
 
@@ -850,9 +912,10 @@ def r_change(b, ip):
             if not p or n - l["q"] > p["s"]:
                 raise Err(409, "Not enough stock for %s." % l["n"])
     old, d, t = s["tot"], *now()
+    gone = []
     for n, l in zip(q, s["l"]):
-        if n != l["q"]:
-            put_back(l, l["q"] - n, "Changed sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"])
+        if n != l["q"] and not put_back(l, l["q"] - n, "Changed sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"]):
+            gone.append(l["n"])
     s["l"] = [dict(l, q=n) for n, l in zip(q, s["l"]) if n > 0]
     s.update(tot=tot, cash=cash)
     if s.get("dc"):
@@ -863,8 +926,10 @@ def r_change(b, ip):
                 entity_name="Receipt #%s" % s["no"], operation_id="sale-%s" % s["no"],
                 old_value=old, new_value=tot, details={"reason": why, "change": change_record},
                 source_key="sale-change-%s-%s" % (s["no"], len(s["h"])))
+    if gone:
+        warn_not_restored(s, gone, "change")
     save()
-    return {}
+    return {"msg": "Sale changed. Stock was not adjusted for deleted products: %s." % ", ".join(gone)} if gone else {}
 
 
 def r_restore(b, ip):
@@ -926,15 +991,26 @@ def r_restore(b, ip):
            for x in purchases):
         raise Err(400, "The backup contains an invalid purchase record.")
     # Keep an immediate database-level recovery point before replacing live data.
+    for x in d["p"]:  # older or hand-edited backups may lack these; the app expects them on every product
+        if not (isinstance(x.get("e"), str) and valid_expiry(x["e"])):
+            x["e"] = ""
+        if x.get("m") is None:
+            x["m"] = 0
     snapshot("pre-restore")
-    PENDING_AUDIT_EVENTS.extend(imported_events)
-    S = {"p": d["p"], "s": d["s"], "g": d.get("g", []),
-         "suppliers": suppliers, "purchases": purchases}
-    put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
-    safe_archive()
-    queue_event("activity", "Backup restored", entity_type="backup", entity_name="Backup restore",
-                details={"products": len(S["p"]), "sales": len(S["s"]), "reason": "Owner-confirmed restore"})
-    save()
+    old_S, old_pending = S, PENDING_AUDIT_EVENTS[:]
+    try:
+        PENDING_AUDIT_EVENTS.extend(imported_events)
+        S = {"p": d["p"], "s": d["s"], "g": d.get("g", []),
+             "suppliers": suppliers, "purchases": purchases}
+        put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
+        safe_archive()
+        queue_event("activity", "Backup restored", entity_type="backup", entity_name="Backup restore",
+                    details={"products": len(S["p"]), "sales": len(S["s"]), "reason": "Owner-confirmed restore"})
+        save()
+    except Exception:
+        S = old_S  # a failed restore must leave the running POS exactly as it was
+        PENDING_AUDIT_EVENTS[:] = old_pending
+        raise
     return {"msg": "Backup restored successfully."}
 
 
@@ -1053,7 +1129,7 @@ def r_import(b, ip):
             "errorCount": len(errors), "changes": changes[:200], "more": max(0, len(changes) - 200),
             "notes": notes[:50], "applied": False}
     if errors or not b.get("apply"):
-        if errors:
+        if errors and b.get("apply"):
             opid = new_operation_id("csv-import")
             by_row = {}
             for issue in errors:
@@ -1227,6 +1303,8 @@ def r_purchase(b, ip):
                    unit_cost=R(cost), total=R(qty * cost), date=date, expiry_date=expiry_date, notes=str(b.get("notes", ""))[:1000])
         # Protected cost: never reduce the product cost on cheaper purchases or edits.
         if p.get("c") is None or R(cost) > p["c"]:
+            log(p["n"], "Cost changed", p.get("c") or 0, R(cost), p["id"], "Purchase edited",
+                audit_values=(p.get("c"), R(cost)))
             p["c"] = R(cost)
         if delta:
             log(p["n"], "Purchase adjusted %+d" % delta, before, p["s"], p["id"], "Purchase record edited")
@@ -1272,6 +1350,8 @@ def r_purchase(b, ip):
     rows.append(row)
     # Protected cost: keep the current cost if this purchase is cheaper; raise it if costlier.
     if product.get("c") is None or R(cost) > product["c"]:
+        log(product["n"], "Cost changed", product.get("c") or 0, R(cost), product["id"], "Purchase received",
+            audit_values=(product.get("c"), R(cost)))
         product["c"] = R(cost)
     log(product["n"], "Purchase received +%d" % qty, before, product["s"], product["id"], "Purchase received from " + supplier["name"])
     save()
@@ -1435,11 +1515,13 @@ class H(BaseHTTPRequestHandler):
         self.send(404, {"error": "Not found."})
 
     def do_POST(self):
-        global ACTOR
+        global ACTOR, TOKEN
         try:
             if self.headers.get("X-Requested-With") != "pos":
                 raise Err(403, "Bad request origin.")
             n = int(self.headers.get("Content-Length") or 0)
+            if n < 0:
+                raise Err(400, "Bad request.")
             max_body = 100_000_000 if urlsplit(self.path).path == "/api/restore" else 20_000_000
             if n > max_body:
                 raise Err(413, "Request too large.")
@@ -1462,13 +1544,13 @@ class H(BaseHTTPRequestHandler):
                         fn = ROUTES.get(self.path)
                         if not fn:
                             raise Err(404, "Not found.")
-                        ACTOR, _ = session_user(self)
+                        ACTOR, TOKEN = session_user(self)
                         if not ACTOR:
                             raise Err(401, "Please sign in again.")
                         out = fn(b, ip)
                         out["state"] = pub()
                 finally:
-                    ACTOR = None
+                    ACTOR = TOKEN = None
             cookie = None
             if "_session" in out:
                 cookie = self.cookie(out.pop("_session"))
