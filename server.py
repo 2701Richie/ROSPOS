@@ -61,6 +61,10 @@ def put(k, v):
 
 
 S = get("state") or {"p": [], "s": [], "g": []}
+# Additive migration: purchases and suppliers live in the existing versioned state blob.
+# Existing product/sale IDs and stock are preserved; no separate database migration is needed.
+S.setdefault("purchases", [])
+S.setdefault("suppliers", [])
 
 
 def save():
@@ -222,7 +226,11 @@ def pub(actor=None):
         s = [dict(x, l=[no_cost(l) for l in x.get("l", [])]) for x in s]
         # Historical cost-change audit rows must not leak through the general state API.
         g = [x for x in g if "cost" not in str(x.get("k", "")).lower()]
-    return {"p": p, "s": s, "g": g, "today": now()[0], "cfg": settings()}
+    out = {"p": p, "s": s, "g": g, "today": now()[0], "cfg": settings()}
+    if can_see_cost(actor):
+        out["purchases"] = S.get("purchases", [])
+        out["suppliers"] = S.get("suppliers", [])
+    return out
 
 
 def cost_of(v):
@@ -903,10 +911,25 @@ def r_restore(b, ip):
             entity_name=item.get("entity_name", ""), operation_id=item.get("operation_id", ""),
             old_value=item.get("old_value"), new_value=item.get("new_value"), details=item.get("details", {}),
             status=item.get("status", "success"), ts=item["ts"], source_key=source_key))
+    suppliers = d.get("suppliers", [])
+    purchases = d.get("purchases", [])
+    if (not isinstance(suppliers, list) or not isinstance(purchases, list)
+            or len(suppliers) > 100000 or len(purchases) > 1000000):
+        raise Err(400, "The backup contains invalid or excessive purchase data.")
+    if any(not isinstance(x, dict) or not isinstance(x.get("id"), str) or not isinstance(x.get("name"), str)
+           or not x["name"].strip() for x in suppliers):
+        raise Err(400, "The backup contains an invalid supplier record.")
+    if any(not isinstance(x, dict) or not all(k in x for k in ("id", "product_id", "supplier_id", "quantity", "unit_cost", "total", "date"))
+           or not isinstance(x.get("id"), str) or not isinstance(x.get("supplier_id"), str)
+           or not isinstance(x.get("quantity"), int) or isinstance(x.get("quantity"), bool) or not 1 <= x["quantity"] <= MAX_NUM
+           or not good_num(x.get("unit_cost")) or not good_num(x.get("total")) or not valid_day(x.get("date"))
+           for x in purchases):
+        raise Err(400, "The backup contains an invalid purchase record.")
     # Keep an immediate database-level recovery point before replacing live data.
     snapshot("pre-restore")
     PENDING_AUDIT_EVENTS.extend(imported_events)
-    S = {"p": d["p"], "s": d["s"], "g": d.get("g", [])}
+    S = {"p": d["p"], "s": d["s"], "g": d.get("g", []),
+         "suppliers": suppliers, "purchases": purchases}
     put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
     safe_archive()
     queue_event("activity", "Backup restored", entity_type="backup", entity_name="Backup restore",
@@ -1126,9 +1149,141 @@ def r_settings(b, ip):
     return {"msg": "Settings saved." if changed else "No changes."}
 
 
+def supplier_by_id(i):
+    return next((x for x in S.get("suppliers", []) if x.get("id") == i), None)
+
+
+def r_supplier(b, ip):
+    allow("manager")
+    name = str(b.get("name", "")).strip()
+    if not name or len(name) > 120:
+        raise Err(400, "Enter a supplier name (up to 120 characters).")
+    existing = next((x for x in S["suppliers"] if x.get("name", "").casefold() == name.casefold()), None)
+    if existing:
+        if b.get("select_existing"):
+            return {"supplier": existing, "msg": "Supplier already exists; selected the existing record."}
+        raise Err(409, "A supplier with that name already exists.")
+    x = {"id": "sup_" + secrets.token_hex(8), "name": name}
+    S["suppliers"].append(x)
+    save()
+    record_event("inventory", "Supplier created", entity_type="supplier", entity_id=x["id"], entity_name=name)
+    return {"supplier": x, "msg": "Supplier added."}
+
+
+def r_purchase(b, ip):
+    allow("manager")
+    action = str(b.get("action", "create"))
+    if action not in ("create", "edit", "delete"):
+        raise Err(400, "Choose a valid purchase action.")
+    rows = S.setdefault("purchases", [])
+    if action in ("edit", "delete"):
+        row = next((x for x in rows if x.get("id") == b.get("id")), None)
+        if not row:
+            raise Err(404, "Purchase record not found.")
+        p = prod(row.get("product_id"))
+        if not p:
+            raise Err(409, "The linked product no longer exists; purchase history cannot be changed safely.")
+        if action == "delete":
+            if p["s"] < row["quantity"]:
+                raise Err(409, "Cannot delete this purchase safely because some received stock is no longer available. Keep the record for audit history.")
+            p["s"] -= row["quantity"]
+            log(p["n"], "Purchase reversed -%d" % row["quantity"], p["s"] + row["quantity"], p["s"], p["id"], "Purchase record deleted")
+            rows.remove(row)
+            save()
+            record_event("inventory", "Purchase deleted", entity_type="purchase", entity_id=row["id"], entity_name=p["n"], details={"quantity": row["quantity"]})
+            return {"msg": "Purchase deleted."}
+        old_q = row["quantity"]
+        qty = b.get("quantity")
+        cost = b.get("unit_cost")
+        supplier = supplier_by_id(b.get("supplier_id"))
+        date = b.get("date")
+        expiry_date = b.get("expiry_date")
+        if not isinstance(qty, int) or isinstance(qty, bool) or qty < 1 or qty > MAX_NUM:
+            raise Err(400, "Quantity must be a positive whole number.")
+        if not good_num(cost) or cost < 0:
+            raise Err(400, "Enter a valid unit cost.")
+        if not supplier:
+            raise Err(400, "Choose a valid supplier.")
+        if not valid_day(date):
+            raise Err(400, "Choose a valid purchase date.")
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise Err(400, "Choose a valid purchase date.")
+        if not valid_day(expiry_date) or expiry_date <= date:
+            raise Err(400, "Expiration date must be after the purchase date.")
+        try:
+            datetime.strptime(expiry_date, "%Y-%m-%d")
+        except ValueError:
+            raise Err(400, "Enter a valid expiration date.")
+        delta = qty - old_q
+        if delta < 0 and p["s"] < -delta:
+            raise Err(409, "Cannot reduce the purchase quantity because the received stock has already been used.")
+        if p["s"] + delta > MAX_NUM:
+            raise Err(400, "That stock quantity is too large.")
+        before = p["s"]
+        p["s"] += delta
+        row.update(supplier_id=supplier["id"], supplier_name=supplier["name"], quantity=qty,
+                   unit_cost=R(cost), total=R(qty * cost), date=date, expiry_date=expiry_date, notes=str(b.get("notes", ""))[:1000])
+        # Protected cost: never reduce the product cost on cheaper purchases or edits.
+        if p.get("c") is None or R(cost) > p["c"]:
+            p["c"] = R(cost)
+        if delta:
+            log(p["n"], "Purchase adjusted %+d" % delta, before, p["s"], p["id"], "Purchase record edited")
+        save()
+        record_event("inventory", "Purchase updated", entity_type="purchase", entity_id=row["id"], entity_name=p["n"])
+        return {"msg": "Purchase updated."}
+
+    product = prod(b.get("product_id"))
+    supplier = supplier_by_id(b.get("supplier_id"))
+    qty, cost, date = b.get("quantity"), b.get("unit_cost"), b.get("date")
+    expiry_date = b.get("expiry_date")
+    if not product:
+        raise Err(400, "Choose a valid product.")
+    if not supplier:
+        raise Err(400, "Choose a valid supplier.")
+    if not isinstance(qty, int) or isinstance(qty, bool) or qty < 1 or qty > MAX_NUM:
+        raise Err(400, "Quantity must be a positive whole number.")
+    if not good_num(cost) or cost < 0:
+        raise Err(400, "Enter a valid unit cost.")
+    if not valid_day(date):
+        raise Err(400, "Choose a valid purchase date.")
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise Err(400, "Choose a valid purchase date.")
+    if not valid_day(expiry_date) or expiry_date <= date:
+        raise Err(400, "Expiration date must be after the purchase date.")
+    try:
+        datetime.strptime(expiry_date, "%Y-%m-%d")
+    except ValueError:
+        raise Err(400, "Enter a valid expiration date.")
+    if product["s"] + qty > MAX_NUM:
+        raise Err(400, "That stock quantity is too large.")
+    before = product["s"]
+    # Match the Reorder tab's suggested quantity (2 x reorder level minus current stock).
+    suggested = max(1, 2 * product["m"] - before)
+    was_on_reorder = before <= product["m"]
+    product["s"] += qty
+    row = {"id": "pur_" + secrets.token_hex(8), "product_id": product["id"], "product_name": product["n"],
+           "supplier_id": supplier["id"], "supplier_name": supplier["name"], "quantity": qty,
+           "unit_cost": R(cost), "total": R(qty * cost), "date": date, "expiry_date": expiry_date, "notes": str(b.get("notes", ""))[:1000],
+           "created_at": datetime.now().isoformat(timespec="seconds")}
+    rows.append(row)
+    # Protected cost: keep the current cost if this purchase is cheaper; raise it if costlier.
+    if product.get("c") is None or R(cost) > product["c"]:
+        product["c"] = R(cost)
+    log(product["n"], "Purchase received +%d" % qty, before, product["s"], product["id"], "Purchase received from " + supplier["name"])
+    save()
+    record_event("inventory", "Purchase recorded", entity_type="purchase", entity_id=row["id"], entity_name=product["n"],
+                 details={"supplier": supplier["name"], "quantity": qty, "unit_cost": R(cost), "total": R(qty * cost), "expiry_date": expiry_date})
+    return {"msg": "Purchase added.", "reorder_removed": was_on_reorder and qty >= suggested, "product_id": product["id"]}
+
+
 ROUTES = {"/api/settings": r_settings, "/api/sale": r_sale, "/api/product": r_product, "/api/delete": r_delete, "/api/delete-many": r_delete_many, "/api/stock": r_stock,
           "/api/void": r_void, "/api/change": r_change, "/api/restore": r_restore, "/api/import": r_import,
-          "/api/users": r_users, "/api/user": r_user, "/api/mypassword": r_mypw}
+          "/api/users": r_users, "/api/user": r_user, "/api/mypassword": r_mypw,
+          "/api/purchase": r_purchase, "/api/supplier": r_supplier}
 PUBLIC = {"/api/login": r_login, "/api/setup": r_setup}
 
 
@@ -1257,7 +1412,7 @@ class H(BaseHTTPRequestHandler):
                     audit_logs.append(item)
                 payload = {"format": "ROSPOS-backup", "version": 2,
                            "createdAt": datetime.now().astimezone().isoformat(timespec="seconds"),
-                           "data": {"p": S["p"], "s": S["s"], "g": S["g"], "logs": audit_logs}}
+                           "data": {"p": S["p"], "s": S["s"], "g": S["g"], "suppliers": S.get("suppliers", []), "purchases": S.get("purchases", []), "logs": audit_logs}}
                 filename = "rospos-backup-%s.json" % datetime.now().strftime("%Y-%m-%d-%H%M%S")
                 body = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                 return self.send(200, body=body, ctype="application/json; charset=utf-8",
