@@ -126,6 +126,24 @@
 <div class="card settings-card" id="cloudBackupCard">
   <div class="settings-card-heading"><span class="settings-icon">☁</span><div><h3>Encrypted Google Drive backups</h3><p class="mu">Optional. Use your own Google account; sales stay available offline.</p></div></div>
   <p id="cloudStatus" class="mu" role="status" aria-live="polite">Checking cloud backup settings…</p>
+  <div class="cloud-connect-box">
+    <strong>Connect Google Drive</strong>
+    <p class="mu">On the ROSPOS computer, open this page at <code>http://127.0.0.1</code> (add the server port if needed). You only have to connect once per installation.</p>
+    <details><summary>One-time Google app setup</summary><p>Create a Google Cloud OAuth client of type <strong>Desktop app</strong> and enable the Google Drive API. Copy the client ID and secret below. Google requires this because rclone's shared OAuth client is retiring. <a href="https://rclone.org/drive/#making-your-own-client-id" target="_blank" rel="noopener noreferrer">Google app setup instructions</a>.</p></details>
+    <div class="form settings-form">
+      <label>Google Desktop client ID<input id="cloudClientId" type="text" autocomplete="off" spellcheck="false" placeholder="…apps.googleusercontent.com"></label>
+      <label>Google Desktop client secret<input id="cloudClientSecret" type="password" autocomplete="off" spellcheck="false" placeholder="From Google Cloud Console"></label>
+    </div>
+    <div class="acts"><button type="button" class="pri" id="cloudConnect">Connect Google Drive</button></div>
+    <div id="cloudRecovery" hidden>
+      <strong>Save your recovery credentials before continuing</strong>
+      <p>Keep these passwords outside the POS computer. Both are needed to decrypt your backups after a computer failure. Never share them publicly.</p>
+      <pre id="cloudRecoveryText"></pre>
+      <label class="cloud-recovery-ack"><input type="checkbox" id="cloudRecoverySaved"> I saved both recovery secrets and the backup folder outside this computer.</label>
+      <div class="acts"><button type="button" id="cloudCopyRecovery">Copy recovery credentials</button>
+      <a id="cloudGoogleAuthorize" target="_blank" rel="noopener noreferrer" hidden>Continue to Google sign-in ↗</a></div>
+    </div>
+  </div>
   <div class="form settings-form">
     <label>Connected encrypted remote<select id="cloudRemote" aria-label="Encrypted Google Drive backup account"><option value="">No account selected</option></select></label>
     <label class="settings-cloud-toggle"><input type="checkbox" id="cloudEnabled"> Automatically back up to this account daily</label>
@@ -139,6 +157,7 @@
   </div>
   <p id="cloudMessage" class="mu" role="status" aria-live="polite"></p>
   <details class="settings-notice"><summary>Connect your own Google account (one-time setup on the ROSPOS computer)</summary>
+    <p>Advanced setup for owners who already use rclone. The Connect Google Drive button above does not require manual rclone configuration.</p>
     <ol><li>Install rclone on the ROSPOS computer (Arch: <code>sudo pacman -S rclone</code>).</li>
     <li>Open a terminal as the same user that runs ROSPOS and enter <code>rclone config</code>. Create a Google Drive remote, authorize the Google account in your browser, and choose your account.</li>
     <li>In <code>rclone config</code>, create a second remote of type <strong>crypt</strong> whose storage points to the Google Drive remote (for example <code>mydrive:ROSPOS-Backups</code>). Choose a strong crypt password, standard filename encryption, and encrypted directory names. Store its recovery password safely outside this computer.</li>

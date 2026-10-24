@@ -25,7 +25,7 @@ In this folder run once:
 sudo bash install-lubuntu.sh
 ```
 
-It installs Python, Avahi, and **rclone** for optional encrypted Google Drive backups, starts the POS at every boot (and restarts it if it stops), gives it the name `http://pos.local` on port 80 (no `:8000`), opens the firewall if one is running, and adds an **Open ROSPOS** icon for the person using the laptop. Installing rclone does **not** connect a Google account; each owner sets up their own account separately (see [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md)). Undo with `sudo bash install-lubuntu.sh --uninstall`; data is kept.
+It installs Python, Avahi, and **rclone** for optional encrypted Google Drive backups, starts the POS at every boot (and restarts it if it stops), gives it the name `http://pos.local` on port 80 (no `:8000`), opens the firewall if one is running, and adds an **Open ROSPOS** icon for the person using the laptop. Installing rclone does **not** connect a Google account; Owners can use **Settings → Cloud Backup → Connect Google Drive** without running rclone config. Google requires a one-time Desktop OAuth app client ID and secret; follow [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md). Undo with `sudo bash install-lubuntu.sh --uninstall`; data is kept.
 
 - **Permanent address:** `pos.local` never changes. Most iPads, Windows, Mac, Linux and recent Android devices can open it. If one can't, use the laptop's IP address, which the script prints. To keep that number from changing, reserve it for the laptop in the router (look for DHCP reservation or address reservation).
 - Keep the folder path free of spaces.
@@ -86,7 +86,7 @@ Then run `sudo systemctl enable --now pos`. View errors with `journalctl -u pos 
 - In Reports, the owner can download a portable `rospos-backup-YYYY-MM-DD.json` file. Store a copy on a USB drive or another computer; the file contains product, sales and activity history.
 - To restore, select the JSON file in Reports, enter the owner password and confirm. ROSPOS validates the contents and creates a pre-restore database snapshot before replacing current product, sales and activity data. User accounts are not replaced.
 - To keep automatic database backups on a USB drive, start the server with `POS_BACKUP_DIR=/media/you/USB/pos-backups`. Add it as an `Environment=` line in the service file. Ensure the drive is mounted before ROSPOS starts.
-- Optional **encrypted Google Drive backups** support a separate Google account on each installation, daily and on demand. See [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md) for private authorization, encryption-key recovery, and setup.
+- Optional **encrypted Google Drive backups** support a separate Google account on each installation, daily and on demand. See [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md) for browser-based Google sign-in on the POS computer, encryption-key recovery, and setup.
 - Keep at least one backup somewhere other than the store laptop. A backup stored only on the same laptop does not protect you if the laptop dies.
 - Older browser-version text backups can still be restored from the “Legacy text backup” section in Reports.
 

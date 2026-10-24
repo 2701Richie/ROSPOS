@@ -1093,3 +1093,20 @@ tbody tr:hover{background:var(--ui-hover)}
 #cloudBackupCard details summary {cursor:pointer;font-weight:600}
 #cloudBackupCard details ol {padding-left:24px;margin:8px 0}
 #cloudBackupCard #cloudStatus {margin:6px 0 14px}
+
+/* Google sign-in setup: focused, accessible, and responsive. */
+.cloud-connect-box{border:1px solid var(--bd);border-radius:14px;padding:16px;margin:14px 0;background:var(--bg)}
+.cloud-connect-box>strong{font-size:15px}
+.cloud-connect-box>.mu{font-size:12px;line-height:1.55;margin:7px 0 10px}
+.cloud-connect-box .form{margin:12px 0 0}
+.cloud-connect-box details{font-size:12px}
+.cloud-connect-box details p{line-height:1.55}
+#cloudRecovery{border:1px solid var(--bd);background:var(--sf);border-radius:12px;padding:14px;margin-top:14px}
+#cloudRecovery p{font-size:12px;line-height:1.5}
+#cloudRecovery pre{white-space:pre-wrap;overflow-wrap:anywhere;user-select:all;padding:12px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);font-size:12px}
+#cloudGoogleAuthorize{display:inline-flex;align-items:center;min-height:42px;padding:8px 12px;color:var(--ac);font-weight:700}
+@media(max-width:700px){.cloud-connect-box .settings-form{grid-template-columns:1fr}}
+
+.cloud-recovery-ack{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.5;margin:10px 0}
+.cloud-recovery-ack input{flex:none;min-height:auto;width:18px;height:18px;margin-top:1px}
+#cloudGoogleAuthorize[hidden]{display:none}

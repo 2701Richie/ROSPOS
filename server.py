@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ROSPOS server. Python standard library only, nothing to install.
 Run:  python3 server.py   then open http://<laptop-ip>:8000 on any tablet or PC."""
-import getpass, gzip, hashlib, hmac, json, math, os, re, secrets, sqlite3, sys, threading, time, traceback
+import getpass, gzip, hashlib, hmac, html, json, math, os, re, secrets, sqlite3, sys, threading, time, traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -670,6 +670,33 @@ class H(BaseHTTPRequestHandler):
                 except AuditQueryError as exc:
                     return self.send(400, {"error": str(exc)})
                 return self.send(200, result)
+        if page == "/api/cloud-oauth/callback":
+            # Only a browser on the POS computer can complete Desktop OAuth.
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                return self.send(403, body=b"Open Google sign-in on the POS computer.",
+                                 ctype="text/plain; charset=utf-8")
+            query = parse_qs(parsed.query)
+            state, code = query.get("state", [""])[0], query.get("code", [""])[0]
+            try:
+                cloud = cloud_backup.complete_google_signin(state, code)
+                with LOCK:
+                    record_event("activity", "Cloud backup Google account connected",
+                                 entity_type="cloud_backup", entity_name=cloud.get("remote", ""))
+                # First backup starts immediately; POS sales never wait for upload.
+                cloud_backup.launch(db, ARCHIVE_DIR, LOCK, settings()["backup_days"])
+                message = "Google Drive connected. Automatic encrypted backups are enabled."
+                status_code = 200
+            except ValueError as exc:
+                message = str(exc)
+                status_code = 400
+            # No OAuth tokens, codes, or credentials are reflected into HTML.
+            body = ("<!doctype html><html><head><meta charset='utf-8'>"
+                    "<meta name='referrer' content='no-referrer'>"
+                    "<title>ROSPOS Google Drive</title></head><body>"
+                    "<h2>" + html.escape(message) + "</h2>"
+                    "<p>Return to ROSPOS Settings to check your backup status.</p>"
+                    "<a href='/'>Open ROSPOS</a></body></html>").encode("utf-8")
+            return self.send(status_code, body=body, ctype="text/html; charset=utf-8")
         if page == "/api/cloud-backup":
             with LOCK:
                 user, _ = session_user(self)
@@ -760,7 +787,13 @@ class H(BaseHTTPRequestHandler):
                         raise Err(403, "Wrong password.")
                 action = b.get("action")
                 try:
-                    if action == "configure":
+                    if action == "connect":
+                        if ip not in ("127.0.0.1", "::1"):
+                            raise ValueError("For Google sign-in, open ROSPOS at http://127.0.0.1:%d on the POS computer." % PORT)
+                        result = cloud_backup.begin_google_signin(b.get("client_id"),
+                                                                  b.get("client_secret"), PORT)
+                        msg = "Save both recovery secrets before signing in with Google."
+                    elif action == "configure":
                         result = cloud_backup.configure(b.get("remote"), b.get("enabled"))
                         msg = "Cloud backup settings saved."
                     elif action == "disconnect":

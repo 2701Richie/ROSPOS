@@ -1,26 +1,90 @@
-# Encrypted Google Drive backups (optional)
+# Encrypted Google Drive backups
 
-ROSPOS remains local-first. Each installation connects to a Google account chosen by its owner. Nothing is uploaded before the owner enables this feature.
+ROSPOS is local-first: sales work offline. The Owner can connect a Google account
+from **Settings → Encrypted Google Drive backups**. No terminal-based rclone
+configuration is needed for the new sign-in flow.
 
-## Set up on the computer running ROSPOS
+## Connect Google Drive
 
-1. Run the normal ROSPOS installation script for your system: **install-arch.sh** or **install-lubuntu.sh** now installs `rclone` from the distribution package manager and checks that it runs. If your distribution package is outdated or the `rclone` package is unavailable, see https://rclone.org/install/ for the official supported installation methods. Do not run the entire ROSPOS installer as a way to connect a Google account.
-2. Open a terminal as the same Linux user that runs the ROSPOS server (not as root) and enter `rclone config`.
-3. Create a Google Drive remote named, for example, `pharmacydrive`. Choose your Google account in the authorization browser window. Google's shared rclone OAuth client is being retired in 2026; follow https://rclone.org/drive/#making-your-own-client-id to create a Google OAuth Desktop app client in Google Cloud Console and enable the Google Drive API.
-4. In `rclone config`, create a second remote named, for example, `pharmacycrypt`, of type **crypt**. Set its destination to `pharmacydrive:ROSPOS-Encrypted`; choose **standard** filename encryption and enabled directory-name encryption; generate a strong crypt password. Keep the crypt password and optional salt in a separate safe place: without them you cannot restore your backups after device loss.
-5. Sign into ROSPOS as Owner; visit **Settings → Encrypted Google Drive backups**. Click Refresh accounts, select `pharmacycrypt`, enable daily backups, enter the ROSPOS Owner password and save. Use Back up now for the first upload. Reopen Settings to check last-success status.
-6. To switch Google accounts, create a new Drive+crypt remote pair in rclone with new names and select the new encrypted remote in Settings. Old cloud files remain in the old account.
+1. Install ROSPOS with the Arch or Lubuntu installer, which installs rclone.
+   Do not rerun an installer merely to authorize an account.
+2. **One-time Google prerequisite:** Follow the
+   [Google Drive client instructions](https://rclone.org/drive/#making-your-own-client-id)
+   to create an OAuth client of type **Desktop app** in Google Cloud Console.
+   Enable the Google Drive API and configure the OAuth consent screen. Copy
+   the Desktop client's ID and secret. Google's shared rclone client is
+   retiring during 2026; this requirement cannot safely be skipped. For a
+   Google app in testing mode, Google's refresh-token expiry restrictions may
+   prevent long-running backups; configure an appropriate published app.
+3. **On the ROSPOS server computer itself**, open the browser at
+   `http://127.0.0.1` (or `http://127.0.0.1:8000` if running the server on
+   port 8000). Sign into ROSPOS as Owner and open **Settings**.
+4. Paste the Google Desktop client ID and secret, enter your current ROSPOS
+   Owner password, and choose **Connect Google Drive**.
+5. **Important:** Copy the displayed backup password, backup salt, and
+   destination folder to a secure place **outside the POS computer**.
+   You need all three plus access to the same Google account to restore after
+   a device failure. A lost password or salt means cloud data cannot be decrypted.
+   Tick the confirmation checkbox before continuing.
+6. Choose **Continue to Google sign-in**, select your Google account, and grant
+   Google Drive file access. The browser returns to a local ROSPOS confirmation.
+   The connection is automatically enabled, and the first encrypted backup is
+   queued immediately. Backups continue daily in the background.
+7. Return to ROSPOS Settings and press **Refresh accounts** to see the connected
+   destination and check the last-success or error status.
 
-The application stores only the remote selection, enabled flag, and backup status in a local file, by default `~/.config/rospos/cloud-backup.json`, restricted to the server user. The optional `POS_CLOUD_CONFIG` environment setting can change that path. rclone stores its own authorization credentials and encryption configuration in that Linux user's private rclone configuration. **Never add either config file, token, or crypt password to Git.**
+**Browser restriction:** Google Desktop OAuth redirects to 127.0.0.1 on the
+device running the browser. Connect from a browser *on the POS server computer*,
+not from a phone or another LAN computer. After connection, the ordinary ROSPOS
+Settings interface can be viewed from the store LAN by an Owner.
 
-## Behavior and recovery
+**Security:** Owner password is required to begin sign-in, change cloud
+settings, back up manually or disconnect. Authorization uses short-lived,
+single-use state and PKCE. Google authorization codes are exchanged on the POS
+computer; access/refresh tokens never enter the browser. Only the recovery
+password/salt are deliberately displayed once to the Owner, to allow recovery
+after loss of the server. These keys must not be shared or stored in Git.
 
-- Existing hourly local backups are unchanged and remain available offline.
-- When enabled, a daily cloud backup makes a consistent temporary SQLite snapshot and includes the archived sales/history JSON files. It compresses them into a ZIP; the rclone **crypt** remote encrypts the ZIP and filename before Google Drive receives them.
-- Automatic uploads operate outside sales/checkout processing, and an outage does not stop selling. Failed backups can retry hourly. The owner can run a manual backup.
-- ROTATION: old backups are removed according to configured retention (7–365); only filenames matching the ROSPOS backup convention are eligible for cleanup.
-- Disconnecting prevents future uploads but **does not** revoke Google's OAuth grant or delete existing backups. Revoke access in your Google account or remove the relevant rclone remote separately.
-- To recover after machine failure, configure rclone with the original Drive account and crypt credentials on a **separate recovery computer** and copy files from `pharmacycrypt:` to a private local folder. The decrypted ZIP contains `pos.db`, `archives/`, and a manifest. Verify it in a temporary test installation first. **Never overwrite a live, running database.**
-- The existing JSON import/Restore interface does **not** yet restore cloud ZIP/database snapshots. Recovery is a separate manual procedure pending a dedicated tested restoration wizard.
+The managed Google credentials and rclone crypt configuration are stored with
+private permissions at `~/.config/rospos/managed-rclone.conf` by default.
+Selected remote and backup status are stored at
+`~/.config/rospos/cloud-backup.json`. `POS_CLOUD_CONFIG` changes the base
+location of both files. Each sign-in creates a separate encrypted Google Drive
+folder to avoid mixing installations' backup data. Cloning ROSPOS does not
+inherit credentials, pharmacy data, or encryption keys.
 
-Security: ROSPOS currently uses HTTP on the trusted store LAN. Do not expose its port publicly; use an HTTPS proxy/VPN for access across untrusted networks. Google OAuth itself is completed through rclone's browser authorization, not through the ROSPOS login screen.
+## Existing rclone setup (advanced, optional)
+
+Existing configured rclone Google Drive + crypt remotes are still supported:
+select a remote in the dropdown, enable backups, enter the Owner password, and
+save. It must use standard filename encryption and enabled directory encryption
+on top of a Google Drive remote. This compatibility mode does not require the
+new browser sign-in. Never point a cloud backup at an unencrypted Drive remote.
+
+## Backup behavior and recovery
+
+- Local hourly/daily backups remain available when offline.
+- Enabling cloud backup uploads a consistent temporary SQLite snapshot,
+  historical sales, and audit archives in an encrypted ZIP package. The
+  rclone **crypt** backend encrypts file contents and filenames.
+- Network uploads do not block sales. Failures are recorded and retry on
+  subsequent scheduling checks.
+- Retention keeps between 7 and 365 recognized ROSPOS bundles and never
+  prunes unrelated files.
+- Disconnecting stops future uploads but does **not** delete remote files,
+  revoke Google's grant, or delete the private rclone credential file.
+- To recover on a replacement computer, connect to the **same Google
+  account**, recreate a crypt remote pointing to the **recorded folder** using
+  the original password **and salt**, then download a bundle into a separate
+  temporary recovery installation and verify its SQLite snapshot and archives.
+  Do not restore over the live POS database. The existing JSON restore screen
+  cannot restore cloud ZIP/database snapshots.
+
+Current status: Automated tests cover OAuth permissions, redirects, state
+validation, token non-disclosure, private config, and simulated rclone
+integration. **Real Google authorization, upload, and recovery have not
+been validated** and are required before relying on cloud backups in production.
+
+ROSPOS currently serves plain HTTP on a trusted store LAN. Do not expose its
+service port to the public internet. Access across untrusted networks must use
+properly configured HTTPS/VPN protection.

@@ -32,8 +32,8 @@ for name, package_command in installers.items():
          name + " never automatically configures a Google account")
 
 guide = (ROOT / "CLOUD_BACKUPS.md").read_text(encoding="utf-8")
-R.ok("rclone config" in guide and "same Linux user" in guide,
-     "recovery/setup guide explains per-installation configuration")
+R.ok(all(x in guide for x in ("Connect Google Drive", "Desktop app", "127.0.0.1", "password", "salt", "Cloning")) and "rclone" in guide.lower(),
+     "setup guide covers browser sign-in, recovery credentials and legacy rclone")
 R.ok((ROOT / "poscore" / "cloud_backup.py").exists(),
      "cloud backup code is packaged in fresh clones")
 R.done()

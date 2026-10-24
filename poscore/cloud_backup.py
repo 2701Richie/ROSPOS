@@ -4,6 +4,7 @@ OAuth credentials are maintained by rclone outside Git and never reach POS clien
 This module performs no IO at import.
 """
 import json
+import sys
 import os
 import re
 import secrets
@@ -15,6 +16,7 @@ import threading
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from poscore import google_oauth
 
 JOB_LOCK = threading.Lock()
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -63,6 +65,25 @@ def _rclone(*args, timeout=25):
     return result.stdout
 
 
+def _managed_remotes():
+    return google_oauth.managed_remotes(sys.modules[__name__])
+
+
+def _rclone_for(remote, *args, timeout=25):
+    if remote in _managed_remotes():
+        return _rclone("--config", str(google_oauth.managed_path(sys.modules[__name__])),
+                       *args, timeout=timeout)
+    return _rclone(*args, timeout=timeout)
+
+
+def begin_google_signin(client_id, client_secret, port):
+    return google_oauth.begin(client_id, client_secret, port, sys.modules[__name__])
+
+
+def complete_google_signin(state, code):
+    return google_oauth.complete(state, code, sys.modules[__name__])
+
+
 def encrypted_drive_remotes():
     """Reject unencrypted remotes, including crypt remotes backed by non-Google providers."""
     if not shutil.which("rclone"):
@@ -70,6 +91,10 @@ def encrypted_drive_remotes():
     try:
         cfg = json.loads(_rclone("config", "dump"))
     except (ValueError, RuntimeError, subprocess.TimeoutExpired):
+        cfg = {}
+    try:
+        cfg.update({k: v for k, v in _managed_remotes().items() if k not in cfg})
+    except (OSError, ValueError):
         return []
     found = []
     for name, info in cfg.items():
@@ -93,7 +118,8 @@ def status(with_remotes=False):
     result = {"enabled": bool(data.get("enabled")), "remote": data.get("remote", ""),
               "last_success": data.get("last_success", ""),
               "last_error": data.get("last_error", "") or error,
-              "running": JOB_LOCK.locked(), "rclone_installed": bool(shutil.which("rclone"))}
+              "running": JOB_LOCK.locked(), "rclone_installed": bool(shutil.which("rclone")),
+              "managed": str(data.get("remote", "")).startswith("rospos_crypt_")}
     if with_remotes:
         result["remotes"] = encrypted_drive_remotes()
     return result
@@ -162,12 +188,12 @@ def backup_once(database, archive_dir, lock, retention=30, reserved=False):
             path = os.path.join(folder, name)
             _bundle(path, database, archive_dir, lock)
             # rclone crypt encrypts file contents and filenames before uploading.
-            _rclone("copyto", path, remote + ":" + name, timeout=300)
+            _rclone_for(remote, "copyto", path, remote + ":" + name, timeout=300)
         try:
-            old = sorted(x for x in _rclone("lsf", remote + ":", "--files-only", timeout=45).splitlines()
+            old = sorted(x for x in _rclone_for(remote, "lsf", remote + ":", "--files-only", timeout=45).splitlines()
                          if BUNDLE.fullmatch(x))
             for stale in old[:-max(7, min(365, int(retention)))]:
-                _rclone("deletefile", remote + ":" + stale, timeout=45)
+                _rclone_for(remote, "deletefile", remote + ":" + stale, timeout=45)
         except (RuntimeError, ValueError, subprocess.TimeoutExpired):
             pass
         saved = _read()
