@@ -106,6 +106,31 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  run(h,'setQty(99,"4")');ok(q()===12,'sell: typing for a line that is not in the cart does nothing');
 }
 
+// ---- Products: large catalogs render a bounded page, with safe page selection ----
+{
+ const products=Array.from({length:210},(_,i)=>({id:i+1,n:'Item '+String(i+1).padStart(3,'0'),p:10,s:5,e:'',m:1}));
+ const h=load('products.js',{S:{p:products,s:[],g:[]}});
+ run(h,'drawProd()');
+ ok((h.el('#pt').innerHTML.match(/data-e=/g)||[]).length===80&&
+    h.el('#productPageInfo').textContent==='Page 1 of 3',
+    'products: initial large catalog renders at most 80 editable rows');
+ h.el('#pall').onchange({target:{checked:true}});
+ ok(run(h,'sel.size')===80,'products: Select page never silently selects all 210 products');
+ h.el('#productNext').onclick();
+ ok((h.el('#pt').innerHTML.match(/data-e=/g)||[]).length===80&&
+    h.el('#productPageInfo').textContent==='Page 2 of 3'&&run(h,'sel.size')===80,
+    'products: page two renders another 80 rows without losing intentional selections');
+ h.el('#productNext').onclick();
+ ok((h.el('#pt').innerHTML.match(/data-e=/g)||[]).length===50&&
+    h.el('#productNext').disabled,
+    'products: last page contains only the remaining 50 products');
+ h.el('#ps').value='Item 210';h.el('#ps').oninput();
+ ok((h.el('#pt').innerHTML.match(/data-e=/g)||[]).length===1&&
+    /Item 210/.test(h.el('#pt').innerHTML)&&run(h,'productPage')===0&&
+    run(h,'sel.size')===0,
+    'products: searching finds off-page items and clears stale bulk selections');
+}
+
 // ---- Products: bulk delete selection ----
 pending.push((async()=>{
  const calls=[];let reply={msg:'Deleted 2 products.'},yes=true;

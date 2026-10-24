@@ -56,9 +56,10 @@
 <section id="v-prod" hidden>
 <div class="products-heading"><div><span class="eyebrow">INVENTORY CATALOG</span><h2>Products</h2><p class="mu">Manage product details, pricing, expiry, and stock corrections.</p></div><button type="button" class="pri" id="productAdd">+ Add product</button></div>
 <div class="card products-list-card">
-<div class="products-list-toolbar"><label class="products-search">Search inventory<input id="ps" type="search" placeholder="Search by product name…" autocomplete="off" aria-label="Search products"></label><div class="products-list-meta"><span id="pc" class="mu">Loading products…</span><label class="products-select-all"><input type="checkbox" id="pall" aria-label="Select all shown products"> Select shown</label></div></div>
+<div class="products-list-toolbar"><label class="products-search">Search inventory<input id="ps" type="search" placeholder="Search by product name…" autocomplete="off" aria-label="Search products"></label><div class="products-list-meta"><span id="pc" class="mu">Loading products…</span><label class="products-select-all"><input type="checkbox" id="pall" aria-label="Select products on this page"> Select page</label></div></div>
 <div id="bulk" class="products-bulk" hidden><b id="bn"></b><input id="bwhy" placeholder="Reason required" aria-label="Reason for deleting the selected products"><button id="bdel" type="button" class="danger-action">Delete selected</button><button id="bclr" type="button">Clear selection</button></div>
 <div class="wrap products-table-wrap"><table class="products-table"><thead><tr><th aria-label="Select"></th><th>Product</th><th>Price</th><th>Cost</th><th>In stock</th><th>Expiry</th><th>Status</th><th>Correct stock</th><th>Actions</th></tr></thead><tbody id="pt"></tbody></table></div>
+<div class="table-pagination"><button type="button" id="productPrev">← Previous</button><span id="productPageInfo" role="status"></span><button type="button" id="productNext">Next →</button></div>
 <div id="rm" class="products-message err" role="status"></div>
 </div>
 <dialog class="products-dialog" id="productFormDialog" aria-labelledby="productFormTitle">

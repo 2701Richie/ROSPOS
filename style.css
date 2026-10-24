@@ -1079,3 +1079,8 @@ tbody tr:hover{background:var(--ui-hover)}
   color:var(--mu);
 }
 .sell-grid-more button{min-height:40px;padding:8px 18px}
+
+/* Compact pagination for large inventory lists. */
+.table-pagination{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;padding:14px 8px}
+.table-pagination button{min-height:40px;padding:8px 14px}
+.table-pagination span{font-size:.9rem;color:var(--mu);font-variant-numeric:tabular-nums}
