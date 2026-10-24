@@ -39,7 +39,7 @@ function drawLive(){
 }
 async function refreshLive(){
  if(liveBusy||!ME)return;liveBusy=true;
- try{const r=await load();if(r.error){liveStatus('Connection issue',false);return}drawLive();liveStatus('Live · updated '+new Date().toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),true)}
+ try{const r=await loadLiveState();if(r.stale)return;if(r.error){liveStatus('Connection issue',false);return}drawLive();liveStatus('Live · updated '+new Date().toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),true)}
  catch(e){liveStatus('Connection issue',false)}finally{liveBusy=false}
 }
 $('#liveRefresh').onclick=refreshLive;

@@ -22,8 +22,8 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
-if [ ! -f "$APP_DIR/server.py" ] || [ ! -f "$APP_DIR/index.html" ] || [ ! -d "$APP_DIR/js" ]; then
-  echo "Run this from the folder that contains server.py, index.html and the js folder."
+if [ ! -f "$APP_DIR/server.py" ] || [ ! -f "$APP_DIR/index.html" ] || [ ! -d "$APP_DIR/js" ] || [ ! -f "$APP_DIR/poscore/__init__.py" ]; then
+  echo "Run this from the folder that contains server.py, index.html, the js folder and the poscore package."
   exit 1
 fi
 

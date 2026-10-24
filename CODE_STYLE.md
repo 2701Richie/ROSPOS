@@ -15,7 +15,15 @@
 - `js/products.js`, `js/purchases.js`, `js/reorder.js`: inventory workflows.
 - `js/reports.js`, `js/logs.js`, `js/receipts.js`: read-only history and reporting UI.
 - `style.css`: shared tokens first, component styles next, responsive overrides last.
-- `server.py`: API, validation, persistence, and auditing. Extract modules only with regression coverage.
+- `server.py`: HTTP endpoints, authorization decisions, locking, transaction mutations, and database persistence.
+- `poscore/storage.py`: WAL database initialization, key/value access, and atomic state, audit and payment-key commits.
+- `poscore/values.py`: numeric and date validation, pure helpers.
+- `poscore/auth_sessions.py`: password hashing and session cookie lifecycle.
+- `poscore/state_views.py`: role-filtered full, Sell, and Live Sales response models.
+- `poscore/archive_store.py`, `poscore/history.py`: archive file I/O, receipt retrieval, and historical sales reports.
+- `poscore/audit_events.py`, `poscore/audit_queries.py`: legacy audit formatting and read-only audit queries.
+- New service modules must not import `server` or open a production DB at import time.
+  Keep server wrappers for compatibility with existing tests and authorization checks.
 
 ## Validation
 

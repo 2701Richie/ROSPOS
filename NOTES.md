@@ -18,15 +18,25 @@ Internal stock and sales counting tool. Python server on the main PC or store ma
 | Screen or behaviour of one tab | `js/<tab>.js` (sell, products, receipts, reorder, reports, livesales, import, logs, accounts, settings) |
 | Shared state, `api()`, sign-in, roles | `js/core.js` |
 | Layout, popups, tab order | `index.html` (structure only) |
-| Look, dark mode, phones | `style.css`: search `grep -n "^/\*" style.css` for the section, phone rules are near the end |
+| Look, dark mode, phones | `style.css`: search `grep -n "^/\*" style.css` for the section, the consolidated Navigation section owns desktop and mobile sidebar layout; avoid reviving obsolete `header nav` overrides |
 | Install or setup | `install-lubuntu.sh`, `install-arch.sh`, `README.md` |
 | Decided rules, data shapes | sections below: Data shapes, Endpoints, Rules already decided |
 
-**Run the tests (one command, prints one line, then only failures):**
+**Check engine (use this first): `python3 tests/check.py`** finds every `tests/*_test.py|js` and `e2e.py` by itself, runs them in parallel, and prints one line then only failures (details of the last run: `/tmp/rospos-check-last.json`).
+- `--fast` (~1 s, skips slow checks) for every edit; plain run (~15 s, adds real-browser + speed checks) before a commit; `--deep` (5x more random requests/steps) before a release; `--clone` after every push.
+- A failure line ends with the exact command and seed to repeat it: `CHECK_SEED=7 python3 tests/fuzz_test.py`. `--only fuzz,sim`, `--skip browser`, `--table` (timings and speed metrics), `--seed random`.
+- What it covers: `permissions` (every endpoint x every role), `fuzz` (thousands of hostile requests, seeded), `simulation` (random sales/voids/purchases/imports/backups/day changes against an independent stock model, plus a many-tablet race), `source_scan` (syntax, doubled-backslash regex, ids, routes, permission calls, unescaped text), `browser` (headless Chromium: tabs per role, script-injection payloads, sale flow, big-catalogue draw time), `perf` (4k-5k products server side) and the older numeric/e2e/etc. checks.
+- **New check:** `python3 tests/check.py --new NAME` writes `tests/NAME_test.py` from a template (helpers in `tests/harness.py`: `boot`, `Store.call(path, body, role)`, `seed`, `invariants`). Nothing to register; it is picked up automatically. Print `ok   ...`/`FAIL ...` (or `PASS ...`) lines, `METRIC name value unit`, `SKIP reason`.
+- **Prove the checks work:** `python3 tests/check.py --selftest` re-introduces 8 known old bugs into a temp copy and fails if any check misses one. When you fix a new class of bug, add it to `MUTATIONS` in `tests/check.py`.
+- Checks only write to temp folders; the engine fails if real `data/`, `backups/`, `archives/` change or a check creates a new file in the repo. Edits by someone else during a run only print a note.
+
+**Older single runner (still works):**
 - `python3 tests/run.py` tests the working tree including uncommitted edits.
 - `python3 tests/run.py --clone` clones GitHub and tests that (run it after every push).
 - `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/receipt_settings_test.py`, `tests/logs_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
-- Add a test for every new rule: put `ok   ...` / `FAIL ...` lines in a new `tests/*_test.py` and add its name to `run.py`.
+- Add a test for every new rule with `python3 tests/check.py --new NAME` (no registration needed; `run.py` lists its checks by hand).
+
+**Phase 5 CSS regression:** `PYTHONDONTWRITEBYTECODE=1 python3 tests/css_snapshot.py --verify` checks the responsive sidebar and light/dark themes in isolated headless Chromium (42 combinations; no POS database). For a controlled CSS-only refactor, capture an original snapshot using `--write /tmp/rospos-css-before.json`, make changes, then compare using `--compare /tmp/rospos-css-before.json`. The tool serves the actual stylesheet over an isolated local static server and disables transitions while sampling layout. ChromeDriver is optional and this test is not part of the standard quick suite.
 
 **Screenshots (only for visual work):** the harness lives outside the repo, in `pos-tests/demo` next to the project folder. `bash pos-tests/demo/shoot.sh` copies the front-end, injects fake data (`demo.js`), serves it on port 8077 and saves PNGs in `/tmp/shots` with headless chromium. URL knobs: `?tab=sell|live|rep|set|receipt&taps=0|1|2` (taps = theme button presses). Look at one image, not all.
 
@@ -40,7 +50,8 @@ Internal stock and sales counting tool. Python server on the main PC or store ma
 |---|---|
 | `install-lubuntu.sh` | One-time setup for the store laptop (Lubuntu/Ubuntu/Debian): boot service, `pos.local` name, port 80, firewall, desktop icon. `--uninstall` undoes it |
 | `install-arch.sh` | Same setup for Arch, used for testing |
-| `server.py` | All data and rules. SQLite in `data/pos.db`, hourly backups, daily sales archives, password re-checks, one function per operation (`r_sale`, `r_void`, ...) |
+| `server.py` | HTTP entrypoint, transaction handlers, SQLite persistence, authorization decisions and scheduled jobs. |
+| `poscore/` | Import-safe backend helpers for validation, sessions, atomic SQLite persistence, scoped state responses, archive reads/writes and audit queries/events. |
 | `archives/` | One readable JSON file per day (`sales-YYYY-MM-DD.json`) for sales and audit rows older than 7 days. Not in git. Local only, like `data/` |
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
@@ -68,7 +79,7 @@ Scripts are plain (not modules) and share one global scope. Load order is in `in
 - Stock/audit log: `{d, t, n:product, k:what happened, a:count before, z:count after, u:who, i:product ID, w:reason}`. Older entries may lack `i` and `w`; normal sales now create a stock-decrease entry.
 - Accounts (kept in the database, never sent with the state): `{id, username, name, role: staff|manager|owner, active, salt, hash}`. `S.today` is the laptop's date.
 
-## Endpoints (POST JSON; header `X-Requested-With: pos` required; every reply includes fresh `state`)
+## Endpoints (POST mutations require JSON and `X-Requested-With: pos`; read-only GET routes return only their documented data)
 
 Sessions use an HttpOnly cookie (`pos_session`, SameSite=Strict, 12 hours, `POS_SESSION_HOURS` to change). 401 means sign in again.
 
@@ -78,6 +89,10 @@ Sessions use an HttpOnly cookie (`pos_session`, SameSite=Strict, 12 hours, `POS_
 | `/api/setup` | anyone, needs the setup code from the server log | Creates the first owner account |
 | `/api/login`, `/api/logout` | anyone / signed in | Sign in and out. 5 wrong tries lock that device and username for a minute |
 | GET `/api/state` | signed in | Current state and `me`; cost-change rows are omitted from staff state responses |
+| GET `/api/sell-state` | signed in | Lightweight product catalog and stock with role-filtered costs and ETag/304 support |
+| GET `/api/live-state` | signed in | Lightweight current-day sales and ETag/304 support; cost hidden from staff |
+| GET `/api/receipt-date?date=YYYY-MM-DD` | signed in | Read-only receipt lookup from one day of hot data or daily archives; historical unit costs omitted; archived receipts are view/reprint only |
+| GET `/api/report-sales?date=YYYY-MM-DD` | manager and owner | Selected day's transactions (including archived) plus last 90 calendar days' daily totals, void counts and historical gross profit; flags unreadable archives |
 | GET `/api/logs?category=inventory\|sales\|activity\|system` | manager and owner | Searchable, paginated structured logs; operation details can be loaded by `operation_id`. Staff are denied server-side |
 | `/api/sale` | staff and up | Server checks stock and expiry, prices from its own list, reduces stock |
 | `/api/product`, `/api/delete`, `/api/delete-many`, `/api/stock`, `/api/import` | manager and up | Product and stock edits. `product` takes optional `c` (blank = unknown; a request without `c` keeps the cost); `import` takes an optional `cost` column (blank cell keeps the cost). `delete-many`: `ids` list (1 to 100000) plus `why`; all or nothing; one audit row per product; copy in `backups/pre-bulk-delete-*.db`. Import: mode `products`, `add` or `set`; `apply:false` previews, `apply:true` saves after a copy in `backups/pre-import-*.db`; all or nothing |

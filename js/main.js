@@ -12,8 +12,8 @@ function sellSnapshot() {
 
 async function refreshSell() {
   const beforeCart = JSON.stringify(cart);
-  const response = await load();
-  if (response.error || response.notModified || !ME || tab !== 'sell') return;
+  const response = await loadSellState();
+  if (response.error || response.stale || response.notModified || !ME || tab !== 'sell') return;
 
   const products = sellSnapshot();
   const productsChanged = products !== sellProductSnapshot;

@@ -55,6 +55,46 @@ check("save_everything", t_save, 2500, extra=" with %d products, %d sales, %d lo
 ms, r = timed(lambda: store.call("/api/state", role="manager"))
 check("state_fetch_manager", ms, 2000, extra=", %.1f MB" % (len(r.data) / 1e6))
 R.metric("state_size_manager", round(len(r.data) / 1e6, 2), "MB")
+ms, small = timed(lambda: store.call("/api/sell-state", role="manager"))
+check("sell_state_fetch_manager", ms, 1500,
+      extra=", %.1f KB" % (len(small.data) / 1e3))
+R.metric("sell_state_size_manager", round(len(small.data) / 1e3, 1), "KB")
+R.ok(small.code == 200 and set(small.obj["state"]) == {"p", "today"} and
+     len(small.data) < len(r.data) * .3,
+     "sell-state: excludes receipts/logs/purchases; at least 70% smaller than full state")
+sell_etag = '"' + hashlib.sha256(small.data).hexdigest() + '"'
+sell_unchanged = store.call("/api/sell-state", role="manager",
+                            headers={"If-None-Match": sell_etag})
+R.ok(sell_unchanged.code == 304 and not sell_unchanged.data,
+     "sell-state: unchanged catalog returns empty 304")
+sell_staff = store.call("/api/sell-state", role="staff",
+                        headers={"If-None-Match": sell_etag})
+R.ok(sell_staff.code == 200 and not cost_leaks(sell_staff.obj["state"])
+     and all("c" not in p for p in sell_staff.obj["state"]["p"]),
+     "sell-state: staff cannot reuse manager ETag or view product cost")
+R.ok(store.call("/api/sell-state").code == 401,
+     "sell-state: signed-out requests are refused")
+
+ms, live = timed(lambda: store.call("/api/live-state", role="manager"))
+check("live_state_fetch_manager", ms, 1500,
+      extra=", %.1f KB" % (len(live.data) / 1e3))
+R.metric("live_state_size_manager", round(len(live.data) / 1e3, 1), "KB")
+R.ok(live.code == 200 and set(live.obj["state"]) == {"s", "today"}
+     and all(s["d"] == today for s in live.obj["state"]["s"])
+     and len(live.data) < len(r.data) * .5,
+     "live-state: only today's receipts, without products, logs or history")
+live_etag = '"' + hashlib.sha256(live.data).hexdigest() + '"'
+R.ok(store.call("/api/live-state", role="manager",
+                headers={"If-None-Match": live_etag}).code == 304,
+     "live-state: matching role-scoped ETag returns 304")
+live_staff = store.call("/api/live-state", role="staff",
+                        headers={"If-None-Match": live_etag})
+R.ok(live_staff.code == 200 and not cost_leaks(live_staff.obj["state"])
+     and all("c" not in line for s in live_staff.obj["state"]["s"] for line in s.get("l", [])),
+     "live-state: staff cannot reuse manager ETag or see historical costs")
+R.ok(store.call("/api/live-state").code == 401,
+     "live-state: signed-out requests are refused")
+
 
 # Conditional state requests must not transfer unchanged data, and may never
 # reuse a manager/owner response for staff.

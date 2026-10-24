@@ -13,7 +13,9 @@ rel = lambda p: os.path.relpath(p, SRC)
 
 # 1. syntax: python (warnings count as errors, e.g. a bad \d escape) and javascript
 py_bad = []
-for p in ["server.py"] + sorted(os.path.relpath(x, SRC) for x in glob.glob(os.path.join(SRC, "tests", "*.py"))):
+for p in ["server.py"] + sorted(os.path.relpath(x, SRC) for x in
+        (glob.glob(os.path.join(SRC, "tests", "*.py")) +
+         glob.glob(os.path.join(SRC, "poscore", "*.py")))):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error")

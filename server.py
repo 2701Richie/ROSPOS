@@ -6,6 +6,21 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+from poscore.values import (MAX_NUM, R, now, day_shift, valid_day, valid_expiry, max_sale_no,
+                            good_num, _no_constant, _finite_float)
+from poscore.archive_store import merge_day_archive
+from poscore.history import no_cost, read_receipt_day, build_report_sales_history
+from poscore.audit_queries import AuditQueryError, query_audit_events
+from poscore.audit_events import (json_value as _json_value,
+                                  legacy_event_key as _legacy_event_key,
+                                  legacy_timestamp as _legacy_timestamp,
+                                  new_operation_id, prepare_sale_events,
+                                  sale_source_key as _sale_source_key)
+from poscore.auth_sessions import (hash_password as hash_pw, public_account as acct,
+                                   create_session, resolve_session)
+from poscore.state_views import public_state, cashier_state, current_sales_state
+from poscore.storage import open_database, read_key, write_key, persist_state
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB", os.path.join(HERE, "data", "pos.db"))
 BACKUP_DIR = os.environ.get("POS_BACKUP_DIR", os.path.join(HERE, "backups"))
@@ -23,42 +38,18 @@ class Err(Exception):
         self.code, self.msg, self.locked = code, msg, locked
 
 
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-db = sqlite3.connect(DB_PATH, check_same_thread=False)
-db.execute("pragma journal_mode=wal")
-db.execute("create table if not exists kv(k text primary key, v text not null)")
-db.execute("""create table if not exists audit_events(
-    id integer primary key autoincrement,
-    ts text not null,
-    category text not null,
-    action text not null,
-    actor text not null default '',
-    entity_type text not null default '',
-    entity_id text not null default '',
-    entity_name text not null default '',
-    operation_id text not null default '',
-    old_value text,
-    new_value text,
-    details text not null default '{}',
-    status text not null default 'success',
-    source_key text unique
-)""")
-db.execute("create index if not exists audit_events_ts on audit_events(ts desc, id desc)")
-db.execute("create index if not exists audit_events_category_ts on audit_events(category, ts desc, id desc)")
-db.execute("create index if not exists audit_events_operation on audit_events(operation_id)")
-db.execute("create table if not exists sale_requests (user_id integer not null, request_id text not null, sale_no integer not null, primary key(user_id, request_id))")
-db.commit()
+db = open_database(DB_PATH)
 PENDING_AUDIT_EVENTS = []
 
 
 def get(k, default=None):
-    r = db.execute("select v from kv where k=?", (k,)).fetchone()
-    return json.loads(r[0]) if r else default
+    """Compatibility wrapper for the configured SQLite key/value store."""
+    return read_key(db, k, default)
 
 
 def put(k, v):
-    db.execute("insert or replace into kv values(?,?)", (k, json.dumps(v)))
-    db.commit()
+    """Compatibility wrapper for a durable key/value update."""
+    return write_key(db, k, v)
 
 
 S = get("state") or {"p": [], "s": [], "g": []}
@@ -72,60 +63,10 @@ PENDING_SALE_REQUEST = None  # (user id, request id, sale number), persisted ato
 
 
 def save():
-    """Persist current POS state, queued audit events, and a payment request key atomically."""
-    global PENDING_AUDIT_EVENTS, PENDING_SALE_REQUEST
-    pending = PENDING_AUDIT_EVENTS[:]
-    try:
-        db.execute("begin immediate")
-        db.execute("insert or replace into kv(k,v) values(?,?)", ("state", json.dumps(S)))
-        if PENDING_SALE_REQUEST is not None:
-            db.execute("insert into sale_requests(user_id,request_id,sale_no) values(?,?,?)", PENDING_SALE_REQUEST)
-        if pending:
-            db.executemany("""insert or ignore into audit_events
-                (ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status,source_key)
-                values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", pending)
-        db.commit()
-        del PENDING_AUDIT_EVENTS[:len(pending)]
-        PENDING_SALE_REQUEST = None
-    except Exception:
-        db.rollback()
-        raise
-
-
-def R(n):
-    return math.floor(n * 100 + 0.5) / 100
-
-
-def now():
-    d = datetime.now()
-    return d.strftime("%Y-%m-%d"), d.strftime("%I:%M %p")
-
-
-def day_shift(day, n):
-    return (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=n)).strftime("%Y-%m-%d")
-
-
-def valid_day(d):
-    return isinstance(d, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
-
-
-def valid_expiry(e):
-    """Blank (no expiry) or a real YYYY-MM-DD date. Anything else is refused so it can never block sales or reach the page as HTML."""
-    if e == "":
-        return True
-    if not valid_day(e):
-        return False
-    try:
-        datetime.strptime(e, "%Y-%m-%d")
-        return True
-    except ValueError:
-        return False
-
-
-def max_sale_no(rows):
-    """Highest whole-number sale no in rows; ignores rows with a missing or odd no."""
-    return max((x["no"] for x in rows if isinstance(x, dict) and isinstance(x.get("no"), int)
-                and not isinstance(x.get("no"), bool)), default=0)
+    """Atomically commit state, audit events and payment idempotency keys."""
+    global PENDING_SALE_REQUEST
+    persist_state(db, S, PENDING_AUDIT_EVENTS, PENDING_SALE_REQUEST)
+    PENDING_SALE_REQUEST = None
 
 
 def next_sale_no():
@@ -136,37 +77,8 @@ def next_sale_no():
 
 
 def _merge_day_archive(day, sales, logs):
-    """Write or merge one day's sales/audit into archives/sales-YYYY-MM-DD.json (readable JSON)."""
-    os.makedirs(ARCHIVE_DIR, exist_ok=True)
-    path = os.path.join(ARCHIVE_DIR, "sales-%s.json" % day)
-    data = {"format": "ROSPOS-day-archive", "version": 1, "date": day, "s": [], "g": []}
-    if os.path.isfile(path):
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                prev = json.load(fh)
-            if not isinstance(prev, dict):
-                raise ValueError("not an archive file")
-            data["s"] = list(prev.get("s") or [])
-            data["g"] = list(prev.get("g") or [])
-        except (OSError, ValueError, TypeError):
-            # never overwrite an unreadable archive: keep it aside, then start a fresh file
-            os.replace(path, path + ".corrupt-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
-    by_no = {s["no"]: s for s in data["s"] if isinstance(s, dict) and "no" in s}
-    for s in sales:
-        by_no[s["no"]] = s
-    data["s"] = sorted(by_no.values(), key=lambda x: x["no"])
-    seen = {(g.get("d"), g.get("t"), g.get("n"), g.get("k"), g.get("a"), g.get("z"), g.get("u"), g.get("i"), g.get("w"))
-            for g in data["g"] if isinstance(g, dict)}
-    for g in logs:
-        key = (g.get("d"), g.get("t"), g.get("n"), g.get("k"), g.get("a"), g.get("z"), g.get("u"), g.get("i"), g.get("w"))
-        if key not in seen:
-            data["g"].append(g)
-            seen.add(key)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
-        fh.write("\n")
-    os.replace(tmp, path)
+    """Compatibility wrapper: merge a daily archive at the configured path."""
+    return merge_day_archive(ARCHIVE_DIR, day, sales, logs)
 
 
 def safe_archive():
@@ -235,22 +147,19 @@ def can_see_cost(actor=None):
     return bool(actor) and ROLES.get(actor.get("role", "staff"), 0) >= ROLES["manager"]
 
 
-def no_cost(d):
-    return {k: v for k, v in d.items() if k != "c"}
-
-
 def pub(actor=None):
-    p, s, g = S["p"], S["s"], S["g"]
-    if not can_see_cost(actor):
-        p = [no_cost(x) for x in p]
-        s = [dict(x, l=[no_cost(l) for l in x.get("l", [])]) for x in s]
-        # Historical cost-change audit rows must not leak through the general state API.
-        g = [x for x in g if "cost" not in str(x.get("k", "")).lower()]
-    out = {"p": p, "s": s, "g": g, "today": now()[0], "cfg": settings()}
-    if can_see_cost(actor):
-        out["purchases"] = S.get("purchases", [])
-        out["suppliers"] = S.get("suppliers", [])
-    return out
+    """Build the authorized full-state view, including cost restrictions."""
+    return public_state(S, can_see_cost(actor), now()[0], settings())
+
+
+def sell_state(actor):
+    """Read model for lightweight catalog and stock polling."""
+    return cashier_state(S["p"], can_see_cost(actor), now()[0])
+
+
+def live_state(actor):
+    """Read model for current-day sales polling."""
+    return current_sales_state(S["s"], can_see_cost(actor), now()[0])
 
 
 def cost_of(v):
@@ -267,10 +176,6 @@ def set_cost(x, c):
         x.pop("c", None)
     else:
         x["c"] = c
-
-
-def _json_value(v):
-    return None if v is None else json.dumps(v, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def _event_tuple(category, action, actor=None, entity_type="", entity_id="", entity_name="",
@@ -299,25 +204,6 @@ def record_event(category, action, **kwargs):
 
 def queue_event(category, action, **kwargs):
     PENDING_AUDIT_EVENTS.append(_event_tuple(category, action, **kwargs))
-
-
-def new_operation_id(prefix):
-    return "%s-%s-%s" % (prefix, datetime.now().strftime("%Y%m%d%H%M%S"), secrets.token_hex(3))
-
-
-def _legacy_event_key(g):
-    if g.get("eid"):
-        return "legacy-g-id-" + str(g["eid"])
-    raw = json.dumps(g, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    import hashlib as _hashlib
-    return "legacy-g-" + _hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _legacy_timestamp(day, clock):
-    try:
-        return datetime.strptime("%s %s" % (day, clock), "%Y-%m-%d %I:%M %p").astimezone().isoformat(timespec="seconds")
-    except (TypeError, ValueError, OverflowError):
-        return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def migrate_legacy_logs():
@@ -372,33 +258,9 @@ def log(n, k, a, z, pid=None, why="", operation_id="", details=None, audit_value
         details=dict({"reason": why} if why else {}, **(details or {})), ts=_legacy_timestamp(d, t), source_key=_legacy_event_key(row))
 
 
-def _sale_source_key(s):
-    return "sale-created-%s" % s.get("no")
-
-
 def _migrate_sale(s, batches):
-    """Prepare legacy sale events for one batched insert during startup."""
-    if not isinstance(s, dict) or not isinstance(s.get("no"), int) or isinstance(s.get("no"), bool):
-        return
-    no = s["no"]
-    ts = _legacy_timestamp(s.get("d"), s.get("t"))
-    batches.append(_event_tuple("sales", "Sale completed", actor=s.get("by", ""), entity_type="sale",
-        entity_id=no, entity_name="Receipt #%s" % no, new_value=s.get("tot"),
-        operation_id="sale-%s" % no, details={"sale": s, "migrated": True}, ts=ts,
-        source_key=_sale_source_key(s)))
-    if s.get("v"):
-        v = s["v"]
-        batches.append(_event_tuple("sales", "Sale voided", actor=v.get("u", ""), entity_type="sale",
-            entity_id=no, entity_name="Receipt #%s" % no, old_value=s.get("tot"), new_value=0,
-            operation_id="sale-%s" % no, details={"reason": v.get("w", ""), "void": v},
-            ts=_legacy_timestamp(v.get("d", s.get("d")), v.get("t", s.get("t"))),
-            source_key="sale-void-%s" % no))
-    for i, h in enumerate(s.get("h", []), 1):
-        batches.append(_event_tuple("sales", "Sale amended", actor=h.get("u", ""), entity_type="sale",
-            entity_id=no, entity_name="Receipt #%s" % no, old_value=h.get("a"), new_value=h.get("z"),
-            operation_id="sale-%s" % no, details={"reason": h.get("w", ""), "change": h},
-            ts=_legacy_timestamp(h.get("d", s.get("d")), h.get("t", s.get("t"))),
-            source_key="sale-change-%s-%s" % (no, i)))
+    """Produce legacy sale audit rows with the server event factory."""
+    return prepare_sale_events(s, batches, _event_tuple)
 
 
 def _insert_event_batch(batches):
@@ -437,28 +299,6 @@ def find_prod(l):
     return prod(l.get("id")) or next((p for p in S["p"] if p["n"] == l["n"]), None)
 
 
-MAX_NUM = 100_000_000  # largest price, cash amount, quantity or stock level the server accepts
-
-
-def good_num(v, hi=MAX_NUM, whole=False):
-    """True only for a real number from 0 to hi: not a bool, not NaN or Infinity (those fail the range test).
-    whole=True also demands an int. Use this for every number a client sends."""
-    if isinstance(v, bool) or not isinstance(v, int if whole else (int, float)):
-        return False
-    return 0 <= v <= hi and math.isfinite(v)
-
-
-def _no_constant(name):  # json.loads hook: refuse NaN, Infinity and -Infinity
-    raise ValueError("Not a valid number: " + name)
-
-
-def _finite_float(s):  # json.loads hook: refuse numbers that overflow to Infinity, such as 1e999
-    x = float(s)
-    if not math.isfinite(x):
-        raise ValueError("Number out of range")
-    return x
-
-
 def nint(v):
     """Whole number from a form field. Blank or unreadable becomes 0; NaN, Infinity and booleans are refused."""
     if isinstance(v, bool) or (isinstance(v, float) and not math.isfinite(v)):
@@ -481,10 +321,6 @@ SETUP_CODE = secrets.token_hex(3).upper() if not U else None
 
 def save_users():
     put("users", U)
-
-
-def hash_pw(pw, salt):
-    return hashlib.pbkdf2_hmac("sha256", str(pw).encode(), bytes.fromhex(salt), 200_000).hex()
 
 
 def set_pw(u, pw):
@@ -531,11 +367,6 @@ def user_by_id(i):
     return next((u for u in U if u["id"] == i), None)
 
 
-def acct(u):
-    return {"id": u["id"], "username": u["username"], "name": u["name"], "role": u["role"],
-            "active": u.get("active", True)}
-
-
 def allow(role):
     if ROLES[ACTOR["role"]] < ROLES[role]:
         raise Err(403, "Your account is not allowed to do this.")
@@ -548,24 +379,13 @@ def reauth(ip, b, role="manager"):
 
 
 def new_session(u):
-    t = secrets.token_hex(24)
-    for old in [k for k, v in SESSIONS.items() if v["exp"] <= time.time()]:
-        del SESSIONS[old]
-    SESSIONS[t] = {"id": u["id"], "exp": time.time() + settings()["session_hours"] * 3600}
-    return t
+    """Create a token using the current session-lifetime setting."""
+    return create_session(u, SESSIONS, settings()["session_hours"])
 
 
 def session_user(handler):
-    t = None
-    for part in (handler.headers.get("Cookie") or "").split(";"):
-        if part.strip().startswith("pos_session="):
-            t = part.strip().split("=", 1)[1]
-    s = SESSIONS.get(t)
-    u = user_by_id(s["id"]) if s and s["exp"] > time.time() else None
-    if not u or not u.get("active", True):
-        SESSIONS.pop(t, None)
-        return None, t
-    return u, t
+    """Resolve the signed-in user and invalidate expired/disabled sessions."""
+    return resolve_session(handler, SESSIONS, user_by_id)
 
 
 # ---- operations (each one runs under LOCK and changes nothing if it fails) ---
@@ -1394,6 +1214,17 @@ ROUTES = {"/api/settings": r_settings, "/api/sale": r_sale, "/api/product": r_pr
 PUBLIC = {"/api/login": r_login, "/api/setup": r_setup}
 
 
+def receipt_day_sales(day, include_cost=False, hot_sales=None):
+    """Read a date using the configured archive and current sales snapshot."""
+    return read_receipt_day(day, ARCHIVE_DIR, S["s"],
+                            include_cost=include_cost, hot_sales=hot_sales)
+
+
+def report_sales_history(selected):
+    """Build manager-only reports from daily archives and current sales."""
+    return build_report_sales_history(selected, ARCHIVE_DIR, S["s"], now()[0])
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -1432,6 +1263,25 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlsplit(self.path)
         page = parsed.path
+        if page in ("/api/report-sales", "/api/receipt-date"):
+            with LOCK:
+                u, _ = session_user(self)
+                if not u:
+                    return self.send(401, {"error": "Please sign in."})
+                if (page == "/api/report-sales"
+                        and ROLES.get(u.get("role", "staff"), 0) < ROLES["manager"]):
+                    return self.send(403, {"error": "Sales reports require manager access."})
+                requested = parse_qs(parsed.query).get("date", [now()[0]])[0]
+                try:
+                    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", requested):
+                        raise ValueError("Invalid date")
+                    datetime.strptime(requested, "%Y-%m-%d")
+                except (ValueError, TypeError):
+                    return self.send(400, {"error": "Choose a valid sales date."})
+                if page == "/api/receipt-date":
+                    sales, unavailable = receipt_day_sales(requested)
+                    return self.send(200, {"date": requested, "sales": sales, "unavailable": unavailable})
+                return self.send(200, report_sales_history(requested))
         if page == "/api/logs":
             with LOCK:
                 u, _ = session_user(self)
@@ -1439,75 +1289,11 @@ class H(BaseHTTPRequestHandler):
                     return self.send(401, {"error": "Please sign in."})
                 if ROLES.get(u.get("role", "staff"), 0) < ROLES["manager"]:
                     return self.send(403, {"error": "Logs are available to authorized managers and owners only."})
-                q = parse_qs(parsed.query)
-                category = (q.get("category", [""])[0] or "").strip()
-                if category not in ("inventory", "sales", "activity", "system"):
-                    return self.send(400, {"error": "Choose a valid log category."})
-                search = (q.get("q", [""])[0] or "").strip()[:160]
-                actor = (q.get("user", [""])[0] or "").strip()[:120]
-                status = (q.get("status", [""])[0] or "").strip()
-                start = (q.get("from", [""])[0] or "").strip()
-                end = (q.get("to", [""])[0] or "").strip()
                 try:
-                    limit = max(1, min(100, int(q.get("limit", ["50"])[0])))
-                    offset = max(0, min(10_000_000, int(q.get("offset", ["0"])[0])))
-                except (ValueError, TypeError):
-                    return self.send(400, {"error": "Invalid pagination."})
-                operation_id = (q.get("operation_id", [""])[0] or "").strip()[:120]
-                def decode_rows(rows):
-                    keys = ("id", "ts", "category", "action", "actor", "entity_type", "entity_id", "entity_name", "operation_id", "old_value", "new_value", "details", "status")
-                    items = []
-                    for row in rows:
-                        item = dict(zip(keys, row))
-                        for key in ("old_value", "new_value", "details"):
-                            try:
-                                item[key] = json.loads(item[key]) if item[key] is not None else None
-                            except (ValueError, TypeError):
-                                pass
-                        items.append(item)
-                    return items
-                if operation_id:
-                    where = "category=? and operation_id=?"
-                    args = [category, operation_id]
-                    total = db.execute("select count(*) from audit_events where " + where, args).fetchone()[0]
-                    rows = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where " + where + " order by ts desc,id desc limit ? offset ?", args + [limit, offset]).fetchall()
-                    return self.send(200, {"items": decode_rows(rows), "total": total, "limit": limit, "offset": offset, "operation_id": operation_id})
-                where, args = ["category=?"], [category]
-                if search:
-                    like = "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-                    where.append("(action like ? escape '\\' or actor like ? escape '\\' or entity_name like ? escape '\\' or entity_id like ? escape '\\' or operation_id like ? escape '\\' or details like ? escape '\\' or old_value like ? escape '\\' or new_value like ? escape '\\')")
-                    args.extend([like] * 8)
-                if actor:
-                    where.append("actor like ?")
-                    args.append("%" + actor + "%")
-                if status in ("success", "failed", "warning", "info"):
-                    where.append("status=?")
-                    args.append(status)
-                if start and re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
-                    where.append("substr(ts,1,10)>=?")
-                    args.append(start)
-                if end and re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
-                    where.append("substr(ts,1,10)<=?")
-                    args.append(end)
-                clause = " and ".join(where)
-                group_expr = "case when operation_id<>'' then operation_id else 'event-'||id end"
-                total = db.execute("select count(*) from (select " + group_expr + " as gkey from audit_events where " + clause + " group by gkey)", args).fetchone()[0]
-                groups = db.execute("select " + group_expr + " as gkey,max(ts) as last_ts,max(id) as last_id,count(*) as event_count from audit_events where " + clause + " group by gkey order by last_ts desc,last_id desc limit ? offset ?", args + [limit, offset]).fetchall()
-                items = []
-                for gkey, last_ts, last_id, count in groups:
-                    if str(gkey).startswith("event-"):
-                        row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where id=?", (int(str(gkey)[6:]),)).fetchall()
-                    else:
-                        row = db.execute("select id,ts,category,action,actor,entity_type,entity_id,entity_name,operation_id,old_value,new_value,details,status from audit_events where category=? and operation_id=? order by case when entity_type='import' then 0 else 1 end, id desc limit 1", (category, gkey)).fetchall()
-                    decoded = decode_rows(row)
-                    if not decoded:
-                        continue
-                    item = decoded[0]
-                    item["event_count"] = (db.execute("select count(*) from audit_events where category=? and operation_id=?", (category, gkey)).fetchone()[0]
-                                            if not str(gkey).startswith("event-") else 1)
-                    item["group_id"] = str(gkey) if not str(gkey).startswith("event-") else ""
-                    items.append(item)
-                return self.send(200, {"items": items, "total": total, "limit": limit, "offset": offset})
+                    result = query_audit_events(db, parse_qs(parsed.query))
+                except AuditQueryError as exc:
+                    return self.send(400, {"error": str(exc)})
+                return self.send(200, result)
         if page == "/api/backup":
             with LOCK:
                 u, _ = session_user(self)
@@ -1543,7 +1329,7 @@ class H(BaseHTTPRequestHandler):
                 ctype = {"html": "text/html", "css": "text/css", "js": "text/javascript", "svg": "image/svg+xml"}[name.rsplit(".", 1)[1]]
                 with open(f, "rb") as fh:
                     return self.send(200, body=fh.read(), ctype=ctype + "; charset=utf-8")
-        if page in ("/api/me", "/api/state"):
+        if page in ("/api/me", "/api/state", "/api/sell-state", "/api/live-state"):
             with LOCK:
                 u, _ = session_user(self)
                 if page == "/api/me":
@@ -1552,7 +1338,11 @@ class H(BaseHTTPRequestHandler):
                     return self.send(401, {"error": "Please sign in."})
                 # Hash the permission-filtered representation, not the raw database.
                 # A conditional request saves the entire response when nothing changed.
-                payload = {"state": pub(u), "me": acct(u)}
+                payload = ({"state": sell_state(u), "me": acct(u)}
+                           if page == "/api/sell-state" else
+                           {"state": live_state(u), "me": acct(u)}
+                           if page == "/api/live-state" else
+                           {"state": pub(u), "me": acct(u)})
                 raw = json.dumps(payload).encode()
                 self._state_etag = '"' + hashlib.sha256(raw).hexdigest() + '"'
                 if self.headers.get("If-None-Match", "") == self._state_etag:

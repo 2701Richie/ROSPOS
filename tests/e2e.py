@@ -1,11 +1,14 @@
-import subprocess, time, json, os, sys, shutil, re, glob, tempfile, urllib.request, urllib.error, http.cookiejar
+import subprocess, time, json, os, sys, shutil, re, glob, tempfile, urllib.request, urllib.error, http.cookiejar, socket
 
 # Usage: python3 e2e.py [source-folder]   (default: the project folder this file lives in)
 SRC = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W = tempfile.mkdtemp(prefix="rospos-e2e-")
-BASE = "http://127.0.0.1:8998"
+with socket.socket() as test_socket:
+    test_socket.bind(("127.0.0.1", 0))
+    PORT = test_socket.getsockname()[1]
+BASE = "http://127.0.0.1:%d" % PORT
 shutil.copytree(SRC, W + "/clone", ignore=shutil.ignore_patterns("data", "backups", "archives", ".git", "__pycache__", "source-backups", "tests"))
-env = dict(os.environ, POS_DB=W + "/data/pos.db", POS_BACKUP_DIR=W + "/backups", POS_PORT="8998", POS_ARCHIVE_DIR=W + "/archives", PYTHONDONTWRITEBYTECODE="1")
+env = dict(os.environ, POS_DB=W + "/data/pos.db", POS_BACKUP_DIR=W + "/backups", POS_PORT=str(PORT), POS_ARCHIVE_DIR=W + "/archives", PYTHONDONTWRITEBYTECODE="1")
 bad = 0
 
 
@@ -19,6 +22,8 @@ def start():
     p = subprocess.Popen([sys.executable, "server.py"], cwd=W + "/clone", env=env,
                          stdout=open(W + "/server.log", "a"), stderr=subprocess.STDOUT)
     for _ in range(60):
+        if p.poll() is not None:
+            raise SystemExit("temporary test server exited: " + open(W + "/server.log").read())
         try:
             urllib.request.urlopen(BASE + "/", timeout=1)
             return p

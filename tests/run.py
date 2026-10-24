@@ -9,7 +9,7 @@
 
 Everything runs against throw-away databases in temp folders. The real data/, backups/ and
 archives/ are checked before and after to prove they were not touched. No POS server is started
-except a temporary one on port 8998 (e2e); the real POS is never stopped or restarted.
+except a temporary one on a random localhost port (e2e); the real POS is never stopped or restarted.
 Exit code 0 = all passed, 1 = something failed.
 """
 import argparse, glob, os, shutil, subprocess, sys, tempfile, time
@@ -125,7 +125,8 @@ def main():
     tests = os.path.join(src, "tests") if os.path.isfile(os.path.join(src, "tests", "numeric_validation_test.py")) else HERE
     before = snapshot(src) if not a.clone else {}
     results = [("numeric", check_numeric(tests, src))]
-    for name, fn in (("e2e", "e2e.py"), ("archive", "archive_test.py"), ("bulk", "bulk_delete_test.py"), ("cost", "cost_test.py"), ("purchases", "purchases_test.py"), ("receipt", "receipt_settings_test.py"), ("logs", "logs_test.py"), ("backend", "backend_fixes_test.py")):
+    for name, fn in (("e2e", "e2e.py"), ("archive", "archive_test.py"), ("bulk", "bulk_delete_test.py"), ("cost", "cost_test.py"), ("purchases", "purchases_test.py"), ("receipt", "receipt_settings_test.py"), ("logs", "logs_test.py"), ("backend", "backend_fixes_test.py"),
+                     ("modules", "modularity_test.py"), ("history", "report_history_test.py")):
         r = check_script(tests, src, fn)
         if r:
             results.append((name, r))

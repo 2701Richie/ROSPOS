@@ -4,7 +4,7 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const root=process.argv[2]||path.join(__dirname,'..');
 let bad=0;const ok=(c,m)=>{console.log((c?'ok   ':'FAIL ')+m);if(!c)bad++};
 function load(file,extra){
- const els={};const el=id=>els[id]||(els[id]={value:'',textContent:'',innerHTML:'',hidden:false,style:{},title:'',attrs:{},setAttribute(k,v){this.attrs[k]=v},querySelector(){return this.label||(this.label={textContent:''})}});
+ const els={};const el=id=>els[id]||(els[id]={value:'',textContent:'',innerHTML:'',hidden:false,style:{},title:'',attrs:{},setAttribute(k,v){this.attrs[k]=v},addEventListener(){},querySelector(){return this.label||(this.label={textContent:''})}});
  const ctx=Object.assign({$:s=>el(s),document:{querySelector:s=>el(s),querySelectorAll:()=>[]},window:{},localStorage:{getItem:()=>null,setItem(){}},
   S:{p:[],s:[],g:[]},T:'2026-10-19',cart:[],said:'',say(m){ctx.said=m},M:n=>n,R:n=>Math.round(n*100)/100,esc:s=>s,tags:()=>''},extra||{});
  vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'js',file),'utf8'),ctx);return{ctx,el};
@@ -275,17 +275,17 @@ pending.push((async () => {
    $:id=>els[id],boot(){},setInterval(fn){poll=fn},
    drawGrid(){grids++},drawLines(){carts++},clampCart(){},
    refreshLive:async()=>{live++},
-   load:async()=>{loads++;return {state:true}}};
+   loadSellState:async()=>{loads++;return {state:true}}};
  vm.createContext(context);vm.runInContext(source,context);
  await poll();
  ok(grids===1&&carts===1,'poll: first refresh synchronizes catalog and cart');
  await poll();
  ok(grids===1&&carts===1,'poll: unchanged state does not rebuild tiles or cart');
- const previousLoad=context.load;
- context.load=async()=>({notModified:true});
+ const previousLoad=context.loadSellState;
+ context.loadSellState=async()=>({notModified:true});
  await poll();
  ok(grids===1&&carts===1,'poll: HTTP 304 skips unnecessary redraws');
- context.load=previousLoad;
+ context.loadSellState=previousLoad;
  context.S={p:[{...p1,s:7}]};
  await poll();
  ok(grids===2&&carts===2,'poll: stock changes refresh product availability');
@@ -297,7 +297,7 @@ pending.push((async () => {
  await poll();
  ok(loads===3,'poll: quantity input is not interrupted by background refresh');
  context.document.activeElement=null;
- context.load=()=>new Promise(resolve=>{resolveLoad=resolve});
+ context.loadSellState=()=>new Promise(resolve=>{resolveLoad=resolve});
  const first=poll(),second=poll();
  ok(loads===3,'poll: overlapping refresh requests do not start a second fetch');
  resolveLoad({state:true});
@@ -305,6 +305,172 @@ pending.push((async () => {
  context.tab='live';
  await poll();
  ok(live===1,'poll: live-sales tab retains its own refresh');
+})());
+
+// ---- Concurrent state requests: coalesce and retain newer lightweight slices ----
+pending.push((async () => {
+ const source=fs.readFileSync(path.join(root,'js','core.js'),'utf8').split('function say(t)')[0];
+ const calls=[];
+ const reply=(state,etag)=>({ok:true,status:200,headers:{get:()=>etag},json:async()=>({state,me:{role:'manager'}})});
+ const ctx={document:{querySelector:()=>({textContent:''})},fetch:(url)=>{
+   let resolve;const promise=new Promise(r=>resolve=r);calls.push({url,resolve});return promise;
+ }};
+ vm.createContext(ctx);vm.runInContext(source,ctx);
+ const full1=vm.runInContext('load()',ctx),full2=vm.runInContext('load()',ctx);
+ ok(calls.length===1,'sync: simultaneous full loads share one HTTP request');
+ const sell=vm.runInContext('loadSellState()',ctx);
+ const live=vm.runInContext('loadLiveState()',ctx);
+ calls[1].resolve(reply({p:[{id:1,s:9}],today:'2026-10-24'},'"sell"'));
+ calls[2].resolve(reply({s:[{no:2,d:'2026-10-24'}],today:'2026-10-24'},'"live"'));
+ await Promise.all([sell,live]);
+ calls[0].resolve(reply({p:[{id:1,s:3}],s:[{no:1,d:'2026-10-24'}],g:[{n:'audit'}],today:'2026-10-24'},'"full"'));
+ await Promise.all([full1,full2]);
+ const result=vm.runInContext('({p:S.p,s:S.s,g:S.g})',ctx);
+ ok(result.p[0].s===9 && result.s[0].no===2 && result.g.length===1,
+   'sync: delayed full load retains newer catalog and sales while updating audit data');
+})());
+
+// ---- Session boundary: old responses must not repopulate the signed-out state ----
+pending.push((async () => {
+ const source=fs.readFileSync(path.join(root,'js','core.js'),'utf8').split('function say(t)')[0];
+ const calls=[];
+ const ctx={document:{querySelector:()=>({textContent:''})},fetch:url=>new Promise(resolve=>calls.push({url,resolve}))};
+ vm.createContext(ctx);vm.runInContext(source,ctx);
+ const first=vm.runInContext('load()',ctx);
+ const sell=vm.runInContext('loadSellState()',ctx);
+ const live=vm.runInContext('loadLiveState()',ctx);
+ vm.runInContext('resetSyncSession()',ctx);
+ for(const c of calls)c.resolve({ok:true,status:200,headers:{get:()=>'"stale"'},json:async()=>({me:{role:'owner'},state:{p:[{id:1}],s:[{no:1,d:'2026-10-24'}],today:'2026-10-24'}})});
+ const results=await Promise.all([first,sell,live]);
+ ok(results.every(r=>r.stale) && vm.runInContext('S.p.length===0 && S.s.length===0 && ME===null && !stateETag && !sellETag && !liveETag',ctx),
+    'session: delayed full, sell and live responses cannot restore signed-out data');
+})());
+
+// ---- Logs: a slow old search cannot replace newer filter results ----
+pending.push((async () => {
+ const deferred=[];
+ const els={};
+ const el=key=>els[key]||(els[key]={value:'',textContent:'',innerHTML:'',disabled:false,
+   addEventListener(){},setAttribute(){}});
+ const ctx={
+   $:el,esc:String,URLSearchParams,document:{addEventListener(){},querySelectorAll(){return []}},
+   api:url=>new Promise(resolve=>deferred.push({url,resolve}))
+ };
+ vm.createContext(ctx);
+ vm.runInContext(fs.readFileSync(path.join(root,'js','logs.js'),'utf8'),ctx);
+ const first=vm.runInContext("drawLogs('inventory')",ctx);
+ el('#il-q').value='updated';
+ const second=vm.runInContext("drawLogs('inventory')",ctx);
+ deferred[1].resolve({items:[{id:2,ts:'2026-10-24',action:'New result',status:'success'}],total:1});
+ await second;
+ deferred[0].resolve({items:[{id:1,ts:'2026-10-22',action:'Old result',status:'success'}],total:1});
+ await first;
+ ok(el('#il-list').innerHTML.includes('New result')&&!el('#il-list').innerHTML.includes('Old result'),
+   'logs: older search results never replace a newer filter');
+ ok(deferred[1].url.includes('q=updated'), 'logs: latest search request includes the current filter');
+})());
+
+// ---- Phase 4: archived-day requests cannot redraw the wrong date ----
+pending.push((async () => {
+ const pendingResponses=[];
+ const h=load('reports.js',{ME:{role:'manager'},T:'2026-10-24',
+   api:url=>new Promise(resolve=>pendingResponses.push({url,resolve}))});
+ h.el('#reportSalesDate').value='2026-10-04';
+ const older=run(h,'drawDailySales()');
+ h.el('#reportSalesDate').value='2026-10-05';
+ const latest=run(h,'drawDailySales()');
+ const makeResult=(day,no)=>({date:day,sales:[{no,d:day,t:'01:30 PM',tot:30,l:[{n:'A',q:1}]}],
+   days:[{date:day,count:1,voided:0,total:30}],unavailable:[]});
+ pendingResponses[1].resolve(makeResult('2026-10-05',888));
+ await latest;
+ pendingResponses[0].resolve(makeResult('2026-10-04',777));
+ await older;
+ ok(h.el('#reportSalesDayRows').innerHTML.includes('#888')&&!h.el('#reportSalesDayRows').innerHTML.includes('#777'),
+   'reports: slow earlier date response cannot overwrite newer daily transactions');
+ ok(h.el('#reportDailyHistoryRows').innerHTML.includes('2026-10-05'),
+   'reports: daily totals follow the currently selected date');
+ ok(run(h,"saleClockMinutes('01:30 PM')")>run(h,"saleClockMinutes('11:30 AM')")&&
+    run(h,"saleClockMinutes('12:00 AM')")<run(h,"saleClockMinutes('12:00 PM')"),
+   'reports: noon/midnight and 12-hour sale timestamps sort chronologically');
+})());
+
+// ---- Phase 4: grouped-log details ignore out-of-order pagination responses ----
+pending.push((async () => {
+ const delayed=[];
+ const h=load('logs.js',{URLSearchParams,api:url=>new Promise(resolve=>delayed.push({url,resolve})),
+   document:{addEventListener(){},querySelectorAll(){return []}}});
+ const detailRow={isConnected:true,firstElementChild:{innerHTML:''}};
+ h.ctx.detailRow=detailRow;
+ const old=run(h,"loadLogOperation('inventory','bulk-1',0,detailRow)");
+ const current=run(h,"loadLogOperation('inventory','bulk-1',100,detailRow)");
+ delayed[1].resolve({items:[{id:2,action:'New page',status:'success',details:{}}],total:101});
+ await current;
+ delayed[0].resolve({items:[{id:1,action:'Old page',status:'success',details:{}}],total:101});
+ await old;
+ ok(detailRow.firstElementChild.innerHTML.includes('New page')&&!detailRow.firstElementChild.innerHTML.includes('Old page'),
+   'logs: late detail-page responses cannot replace the current page');
+})());
+
+// ---- Phase 4: forecasts and financial totals include archived daily summaries ----
+{
+ const h=load('reports.js',{T:'2026-10-24',S:{p:[],s:[],g:[]}});
+ vm.runInContext(fs.readFileSync(path.join(root,'js','reorder.js'),'utf8'),h.ctx);
+ run(h,'reportDays=[{date:"2026-10-10",total:100,count:2,profit:60,revenue_costed:90,lines:2,missing:1}]');
+ const cost=run(h,'costStats()'),forecast=run(h,'makeForecast(7)');
+ ok(cost.d30.profit===60&&cost.d30.revenue===90&&cost.d30.missing===1,
+   'reports: archived sales contribute to 30-day gross profit and missing-cost counts');
+ ok(forecast&&forecast.historyDays===15&&forecast.revenue>0,
+   'reports: forecast uses historical daily summaries rather than only hot receipts');
+}
+
+// ---- Legacy server compatibility: 404 purpose-specific APIs use full state ----
+pending.push((async () => {
+ const source=fs.readFileSync(path.join(root,'js','core.js'),'utf8').split('function say(t)')[0];
+ const routes=[];
+ const archived={p:[{id:7,n:'Legacy product',s:4}],s:[{no:42,d:'2026-10-24',tot:100}],
+                 g:[],today:'2026-10-24'};
+ const ctx={document:{querySelector:()=>({textContent:''})},
+   fetch:async url=>{
+     routes.push(url);
+     if(url==='/api/sell-state'||url==='/api/live-state')
+       return {ok:false,status:404,headers:{get:()=>null},json:async()=>({error:'Not found.'})};
+     if(url==='/api/state')
+       return {ok:true,status:200,headers:{get:()=>''},
+               json:async()=>({state:{...archived},me:{role:'manager'}})};
+     throw Error('Unexpected endpoint: '+url);
+   }};
+ vm.createContext(ctx);vm.runInContext(source,ctx);
+ const sell=await vm.runInContext('loadSellState()',ctx);
+ const live=await vm.runInContext('loadLiveState()',ctx);
+ ok(!sell.error&&!live.error&&vm.runInContext('S.p[0].id===7&&S.s[0].no===42',ctx),
+   'legacy sync: sell and live both recover their state through /api/state');
+ const previous=routes.slice();
+ await vm.runInContext('loadSellState()',ctx);
+ await vm.runInContext('loadLiveState()',ctx);
+ ok(routes.filter(u=>u==='/api/sell-state').length===1&&
+    routes.filter(u=>u==='/api/live-state').length===1&&
+    routes.filter(u=>u==='/api/state').length===4,
+   'legacy sync: probes unsupported endpoints once and avoids repeated 404s');
+ vm.runInContext('resetSyncSession()',ctx);
+ await vm.runInContext('loadLiveState()',ctx);
+ ok(routes.filter(u=>u==='/api/live-state').length===2,
+   'legacy sync: new login session rechecks whether the optimized endpoint is available');
+})());
+
+pending.push((async () => {
+ const source=fs.readFileSync(path.join(root,'js','core.js'),'utf8').split('function say(t)')[0];
+ const routes=[];
+ const ctx={document:{querySelector:()=>({textContent:''})},
+   fetch:async url=>{
+     routes.push(url);
+     return {ok:false,status:503,headers:{get:()=>null},
+       json:async()=>({error:'Temporarily unavailable'})};
+   }};
+ vm.createContext(ctx);vm.runInContext(source,ctx);
+ const result=await vm.runInContext('loadLiveState()',ctx);
+ ok(result.error==='Temporarily unavailable'&&routes.length===1&&
+    !vm.runInContext('legacyLiveSync',ctx),
+   'legacy sync: genuine server failures are not disguised as unsupported-endpoint fallback');
 })());
 
 Promise.all(pending).then(()=>process.exit(bad?1:0),e=>{console.log('FAIL test crashed: '+e);process.exit(1)});
