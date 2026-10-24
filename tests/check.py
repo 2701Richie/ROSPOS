@@ -79,7 +79,7 @@ def parse(text, rc):
         res["failed"] = [l for l in lines if l.startswith(("[FAIL]", "[WARN]"))]
         res["total"] = n.get("PASS", 0) + n.get("WARN", 0) + n.get("FAIL", 0)
     else:
-        res["passed"] = sum(1 for l in lines if l.startswith("ok   "))
+        res["passed"] = sum(1 for l in lines if l.startswith(("ok   ", "PASS ")))  # 'PASS <what>' is accepted too
         res["failed"] = [l[5:] for l in lines if l.startswith("FAIL ")]
         res["total"] = res["passed"] + len(res["failed"])
     for l in lines:
@@ -146,6 +146,7 @@ MUTATIONS = [
     ("stock endpoint open to staff", "server.py", 'def r_stock(b, ip):\n    allow("manager")', "def r_stock(b, ip):\n    pass", "permissions,source_scan"),
     ("reorder quantity regex doubled backslash", "js/reorder.js", "/^\\d+$/.test(v)", "/^\\\\d+$/.test(v)", "js_logic,source_scan"),
     ("expiry printed into page unescaped", "js/core.js", "'+esc(p.e)+'", "'+p.e+'", "source_scan"),
+    ("page does not escape any text (script injection)", "js/core.js", "const esc=s=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));", "const esc=s=>String(s);", "browser"),
 ]
 
 
@@ -162,7 +163,7 @@ def selftest(src, jobs):
         if text.count(old) != 1:
             return name, None, "the code this mutation edits has changed (%d matches in %s) - update MUTATIONS in tests/check.py" % (text.count(old), rel)
         open(p, "w", encoding="utf-8").write(text.replace(old, new))
-        rc, out = sh([sys.executable, me, "--src", work, "--only", expect, "--fast", "--json", os.path.join(work, "r.json")], timeout=300)
+        rc, out = sh([sys.executable, me, "--src", work, "--only", expect, "--json", os.path.join(work, "r.json")], timeout=300)
         caught = rc != 0 and "FAIL" in out
         who = ", ".join(sorted({l.split("]")[0].strip(" [") for l in out.splitlines() if l.startswith("  [")}))
         return name, caught, who
@@ -241,16 +242,17 @@ def main():
     after = snapshot(src) if not a.clone else {}
     changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
     live_changed = [k for k in changed if k.startswith("live:")]
-    repo_changed = [k[5:] for k in changed if k.startswith("repo:")]
+    repo_new = [k[5:] for k in changed if k.startswith("repo:") and k not in before]  # a check wrote a new file into the repo
+    repo_edited = [k[5:] for k in changed if k.startswith("repo:") and k in before and k in after]  # usually another editor or agent working at the same time
     rc, h = sh(["git", "-C", src, "rev-parse", "--short", "HEAD"], timeout=15)
     desc = "%s @%s%s" % (label, h.strip() if rc == 0 else "no-git", "+uncommitted" if rc == 0 and sh(["git", "-C", src, "status", "--porcelain"], timeout=15)[1].strip() else "")
     failed = [r for r in results if r["failed"]]
     skipped = [r for r in results if r["skip"]]
     total_ok, total_n = sum(r["passed"] for r in results), sum(r["total"] for r in results)
-    bad = bool(failed or live_changed or repo_changed)
+    bad = bool(failed or live_changed or repo_new)
     print("%s  %d checks, %d assertions, %d failed, %d skipped | data %s | repo %s | %s | %s seed %s | %ds" % (
         "FAIL" if bad else "PASS", len(results), total_n, sum(len(r["failed"]) for r in results), len(skipped) + len(skipped_slow),
-        "CHANGED" if live_changed else "untouched", "CHANGED" if repo_changed else "untouched", desc, level, seed, time.time() - t0))
+        "CHANGED" if live_changed else "untouched", "NEW FILES" if repo_new else "untouched", desc, level, seed, time.time() - t0))
     for r in failed:
         print("  [%s] %d failed   repeat: CHECK_SEED=%s %s" % (r["name"], len(r["failed"]), seed, r["rerun"]))
         for line in r["failed"][:6]:
@@ -259,8 +261,10 @@ def main():
             print("      ... %d more (see %s)" % (len(r["failed"]) - 6, LAST))
     if live_changed:
         print("  [data] the real data/backups/archives changed during the run: " + ", ".join(live_changed[:3]))
-    if repo_changed:
-        print("  [repo] files changed during the run (a check wrote into the repo, or another editor was working): " + ", ".join(repo_changed[:5]))
+    if repo_new:
+        print("  [repo] a check created new files inside the repo (checks must only write to temp folders): " + ", ".join(repo_new[:5]))
+    if repo_edited:
+        print("  note: these files were edited while the checks ran (another agent or editor?), results may mix versions: " + ", ".join(repo_edited[:5]))
     for r in skipped:
         print("  skipped %s: %s" % (r["name"], r["skip"]))
     if skipped_slow:
@@ -275,7 +279,7 @@ def main():
         for r in results:
             print("\n===== %s =====\n%s" % (r["name"], r["output"]))
     report = {"status": "FAIL" if bad else "PASS", "level": level, "seed": seed, "source": src, "description": desc, "seconds": round(time.time() - t0, 1),
-              "data_changed": live_changed, "repo_changed": repo_changed, "checks": [{k: r[k] for k in ("name", "file", "passed", "total", "failed", "skip", "seconds", "metrics", "rerun")} for r in results]}
+              "data_changed": live_changed, "repo_new_files": repo_new, "repo_edited_during_run": repo_edited, "checks": [{k: r[k] for k in ("name", "file", "passed", "total", "failed", "skip", "seconds", "metrics", "rerun")} for r in results]}
     for path in (LAST, a.json):
         if path:
             json.dump(report, open(path, "w"), indent=1)
