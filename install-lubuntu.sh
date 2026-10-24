@@ -32,9 +32,13 @@ if [ ! -f "$APP_DIR/server.py" ] || [ ! -f "$APP_DIR/index.html" ] || [ ! -d "$A
   exit 1
 fi
 
-echo "1/6 Installing packages (python, avahi, libnss-mdns)..."
+echo "1/6 Installing packages (python, avahi, libnss-mdns, rclone)..."
 export DEBIAN_FRONTEND=noninteractive
-{ apt-get update && apt-get install -y python3 avahi-daemon libnss-mdns; } || { echo "Package install failed. Check the internet connection and try again."; exit 1; }
+{ apt-get update && apt-get install -y python3 avahi-daemon libnss-mdns rclone; } || { echo "Package install failed. Check the internet connection and try again."; exit 1; }
+if ! command -v rclone >/dev/null 2>&1 || ! rclone version >/dev/null 2>&1; then
+  echo "rclone is not runnable. Check the installation before continuing."
+  exit 1
+fi
 
 echo "2/6 Setting up the name pos.local ..."
 sed -i 's/^#\?host-name=.*/host-name=pos/' /etc/avahi/avahi-daemon.conf
@@ -118,3 +122,6 @@ echo "If a device cannot open pos.local, use one of these instead:"
 ip -4 -brief address | awk '$1!="lo" && $2=="UP" {split($3,a,"/"); print "                  http://" a[1]}'
 echo
 echo "Tip: in your router, reserve that address for this laptop so the number never changes."
+echo "Optional encrypted Google Drive backups: rclone is installed."
+echo "To connect your own Google account, run 'rclone config' as $U (not sudo)."
+echo "Then choose a crypt remote in Owner Settings. See $APP_DIR/CLOUD_BACKUPS.md for instructions."

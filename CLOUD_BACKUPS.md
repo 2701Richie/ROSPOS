@@ -4,7 +4,7 @@ ROSPOS remains local-first. Each installation connects to a Google account chose
 
 ## Set up on the computer running ROSPOS
 
-1. Install a recent version of rclone (https://rclone.org/install/).
+1. Run the normal ROSPOS installation script for your system: **install-arch.sh** or **install-lubuntu.sh** now installs `rclone` from the distribution package manager and checks that it runs. If your distribution package is outdated or the `rclone` package is unavailable, see https://rclone.org/install/ for the official supported installation methods. Do not run the entire ROSPOS installer as a way to connect a Google account.
 2. Open a terminal as the same Linux user that runs the ROSPOS server (not as root) and enter `rclone config`.
 3. Create a Google Drive remote named, for example, `pharmacydrive`. Choose your Google account in the authorization browser window. Google's shared rclone OAuth client is being retired in 2026; follow https://rclone.org/drive/#making-your-own-client-id to create a Google OAuth Desktop app client in Google Cloud Console and enable the Google Drive API.
 4. In `rclone config`, create a second remote named, for example, `pharmacycrypt`, of type **crypt**. Set its destination to `pharmacydrive:ROSPOS-Encrypted`; choose **standard** filename encryption and enabled directory-name encryption; generate a strong crypt password. Keep the crypt password and optional salt in a separate safe place: without them you cannot restore your backups after device loss.

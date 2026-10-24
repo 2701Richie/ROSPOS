@@ -25,7 +25,7 @@ In this folder run once:
 sudo bash install-lubuntu.sh
 ```
 
-It installs what is needed, starts the POS at every boot (and restarts it if it stops), gives it the name `http://pos.local` on port 80 (no `:8000`), opens the firewall if one is running, and adds an **Open ROSPOS** icon for the person using the laptop. Undo with `sudo bash install-lubuntu.sh --uninstall`; data is kept.
+It installs Python, Avahi, and **rclone** for optional encrypted Google Drive backups, starts the POS at every boot (and restarts it if it stops), gives it the name `http://pos.local` on port 80 (no `:8000`), opens the firewall if one is running, and adds an **Open ROSPOS** icon for the person using the laptop. Installing rclone does **not** connect a Google account; each owner sets up their own account separately (see [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md)). Undo with `sudo bash install-lubuntu.sh --uninstall`; data is kept.
 
 - **Permanent address:** `pos.local` never changes. Most iPads, Windows, Mac, Linux and recent Android devices can open it. If one can't, use the laptop's IP address, which the script prints. To keep that number from changing, reserve it for the laptop in the router (look for DHCP reservation or address reservation).
 - Keep the folder path free of spaces.
@@ -40,7 +40,7 @@ The manual steps below still work if you prefer them.
 
 The repository is code-only: `data/`, `backups/`, and `archives/` are intentionally excluded from Git. A fresh clone starts with an empty database and first-time owner setup. Do not copy the store database into Git to migrate data; use the owner backup/restore flow described below.
 
-For a development VM, install Git, Python 3, and Node.js (Node is only needed for the JavaScript checks), clone the private repository, then run `python3 tests/check.py`. This runs against temporary test databases and checks that the real data folders are unchanged. To validate the published clone from an existing checkout, use `python3 tests/check.py --clone`.
+For a development VM, install Git, Python 3, and Node.js (Node is only needed for the JavaScript checks), clone the repository, then run `python3 tests/check.py`. This runs against temporary test databases and checks that the real data folders are unchanged. To validate the published clone from an existing checkout, use `python3 tests/check.py --clone`.
 
 **Do not expose the POS server directly to the public internet.** ROSPOS currently serves plain HTTP and is intended for a trusted local network. For remote/cloud access, keep port 8000 blocked from public access and use a properly configured HTTPS reverse proxy plus firewall/VPN before using real data. The laptop installer scripts are intended for supported desktop/laptop setups, not generic cloud provisioning.
 
