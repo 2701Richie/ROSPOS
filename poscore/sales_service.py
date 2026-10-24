@@ -3,7 +3,7 @@
 Importing this module performs no I/O and never opens the POS database.
 """
 
-from poscore.values import MAX_NUM, R, good_num, now
+from poscore.values import MAX_NUM, R, good_num
 
 
 def r_sale(ctx, b, ip):
@@ -25,7 +25,7 @@ def r_sale(ctx, b, ip):
         agg[l["id"]] = agg.get(l["id"], 0) + q
     if not agg:
         raise ctx.Err(400, "Add a product first.")
-    today, t = now()
+    today, t = ctx.now()
     lines, tot = [], 0
     for i, q in agg.items():
         p = ctx.prod(i)
@@ -73,7 +73,7 @@ def r_void(ctx, b, ip):
     if not why:
         raise ctx.Err(400, "Enter a reason.")
     gone = [l["n"] for l in s["l"] if not ctx.put_back(l, l["q"], "Void sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"])]
-    d, t = now()
+    d, t = ctx.now()
     s["v"] = {"d": d, "t": t, "w": why, "u": ctx.ACTOR["name"]}
     ctx.queue_event("sales", "Sale voided", entity_type="sale", entity_id=s["no"],
                 entity_name="Receipt #%s" % s["no"], operation_id="sale-%s" % s["no"],
@@ -108,7 +108,7 @@ def r_change(ctx, b, ip):
             p = ctx.find_prod(l)
             if not p or n - l["q"] > p["s"]:
                 raise ctx.Err(409, "Not enough stock for %s." % l["n"])
-    old, d, t = s["tot"], *now()
+    old, d, t = s["tot"], *ctx.now()
     gone = []
     for n, l in zip(q, s["l"]):
         if n != l["q"] and not ctx.put_back(l, l["q"] - n, "Changed sale #%d" % s["no"], why, operation_id="sale-%s" % s["no"]):
