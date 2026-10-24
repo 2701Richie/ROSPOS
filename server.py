@@ -21,6 +21,7 @@ from poscore.auth_sessions import (hash_password as hash_pw, public_account as a
                                    create_session, resolve_session)
 from poscore.state_views import public_state, cashier_state, current_sales_state
 from poscore.storage import open_database, read_key, write_key, persist_state
+from poscore import accounts_service
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB", os.path.join(HERE, "data", "pos.db"))
@@ -473,95 +474,28 @@ def r_sale(b, ip):
 
 
 def r_login(b, ip):
-    un = str(b.get("username", "")).strip().lower()
-    u = find_user(un)
-    if not check_pw(u, str(b.get("password", "")), "login|%s|%s" % (ip, un)):
-        record_event("activity", "Login failed", actor=un, entity_type="account", entity_name=un,
-                     details={"remote": ip}, status="failed")
-        raise Err(403, "Wrong username or password.")
-    record_event("activity", "Login successful", actor=u["name"], entity_type="account",
-                 entity_id=u["id"], entity_name=u["username"], details={"role": u["role"]})
-    return {"me": acct(u), "_session": new_session(u)}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return accounts_service.r_login(sys.modules[__name__], b, ip)
 
 
 def r_setup(b, ip):
-    if U:
-        raise Err(403, "Setup is already done.")
-    throttle("setup|" + ip)
-    if not hmac.compare_digest(str(b.get("code", "")).strip().upper(), SETUP_CODE):
-        miss("setup|" + ip)
-        raise Err(403, "Wrong setup code. It is printed in the server log.")
-    un, name = str(b.get("username", "")).strip().lower(), " ".join(str(b.get("name", "")).split())
-    if not re.fullmatch(r"[a-z0-9._-]{3,30}", un) or not name:
-        raise Err(400, "Enter your name and a username of 3 to 30 letters or numbers.")
-    u = {"id": 1, "username": un, "name": name, "role": "owner", "active": True}
-    set_pw(u, valid_pw(b.get("password")))
-    U.append(u)
-    save_users()
-    record_event("activity", "Owner account created", actor=name, entity_type="account",
-                 entity_id=u["id"], entity_name=un, details={"role": "owner"})
-    return {"me": acct(u), "_session": new_session(u)}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return accounts_service.r_setup(sys.modules[__name__], b, ip)
 
 
 def r_users(b, ip):
-    allow("owner")
-    return {"users": [acct(u) for u in U]}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return accounts_service.r_users(sys.modules[__name__], b, ip)
 
 
 def r_user(b, ip):
-    allow("owner")
-    i, un = b.get("id"), str(b.get("username", "")).strip().lower()
-    name, role, pw = " ".join(str(b.get("name", "")).split()), b.get("role"), str(b.get("password") or "")
-    active = bool(b.get("active", True))
-    if role not in ROLES:
-        raise Err(400, "Pick a role.")
-    if not name:
-        raise Err(400, "Enter a name.")
-    creating = not bool(i)
-    if i:
-        u = user_by_id(i)
-        if not u:
-            raise Err(404, "Account not found.")
-        before_user = acct(u)
-    else:
-        if not re.fullmatch(r"[a-z0-9._-]{3,30}", un):
-            raise Err(400, "Username must be 3 to 30 letters, numbers, dots, dashes or underscores.")
-        if find_user(un):
-            raise Err(409, "That username is taken.")
-        valid_pw(pw)
-        u = {"id": max([x["id"] for x in U] + [0]) + 1, "username": un}
-    others = [x for x in U if x is not u and x["role"] == "owner" and x.get("active", True)]
-    if u.get("role") == "owner" and (role != "owner" or not active) and not others:
-        raise Err(409, "There must always be one active owner.")
-    if pw:
-        valid_pw(pw)
-    u.update(name=name, role=role, active=active)
-    if pw:
-        set_pw(u, pw)
-    if u not in U:
-        U.append(u)
-    if not active or (pw and u["id"] != ACTOR["id"]):
-        for t in [t for t, s in SESSIONS.items() if s["id"] == u["id"]]:
-            del SESSIONS[t]
-    save_users()
-    record_event("activity", "Account created" if creating else "Account updated", entity_type="account",
-                 entity_id=u["id"], entity_name=u.get("username", un),
-                 old_value=None if creating else before_user,
-                 new_value={"name": u["name"], "role": u["role"], "active": u["active"]},
-                 details={"password_reset": bool(pw)})
-    return {"users": [acct(x) for x in U]}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return accounts_service.r_user(sys.modules[__name__], b, ip)
 
 
 def r_mypw(b, ip):
-    if not check_pw(ACTOR, str(b.get("old", "")), "pw|%s|%s" % (ip, ACTOR["id"])):
-        raise Err(403, "Wrong current password.")
-    set_pw(ACTOR, valid_pw(b.get("new")))
-    for t in [t for t, v in SESSIONS.items() if v["id"] == ACTOR["id"] and t != TOKEN]:
-        del SESSIONS[t]  # other tablets signed in as this user must sign in again with the new password
-    save_users()
-    record_event("activity", "Password changed", entity_type="account", entity_id=ACTOR["id"],
-                 entity_name=ACTOR.get("username", ""), details={"self_service": True})
-    return {}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return accounts_service.r_mypw(sys.modules[__name__], b, ip)
 
 
 def r_product(b, ip):

@@ -65,20 +65,44 @@ for f in JS:
 ghost = sorted(r for r in called if r not in server_routes)
 R.ok(not ghost, "every /api/ address the page calls exists on the server (%d addresses)" % len(called) + ("" if not ghost else " -> unknown: " + ", ".join("%s (%s)" % (g, called[g]) for g in ghost)))
 
-# 5. every write endpoint checks who is asking
+# 5. Every write endpoint checks roles, including checks delegated into a service.
+# Only source modules imported through an explicit server wrapper are trusted.
 tree = ast.parse(server_src)
 funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+services = {}
+for path in sorted(glob.glob(os.path.join(SRC, "poscore", "*_service.py"))):
+    name = os.path.basename(path)[:-3]
+    services[name] = {n.name: n for n in ast.parse(read("poscore/" + name + ".py")).body
+                      if isinstance(n, ast.FunctionDef)}
 routes = {}
 for node in tree.body:
     if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "ROUTES" for t in node.targets) and isinstance(node.value, ast.Dict):
         routes = {k.value: v.id for k, v in zip(node.value.keys, node.value.values)}
-STAFF_OK = {"r_sale", "r_mypw"}  # any signed-in user (do_POST already requires a session for everything but login/setup)
+
+def has_role_check(fn):
+    return any(isinstance(c, ast.Call) and (
+        isinstance(c.func, ast.Name) and c.func.id in ("allow", "reauth")
+        or isinstance(c.func, ast.Attribute) and c.func.attr in ("allow", "reauth")
+           and isinstance(c.func.value, ast.Name) and c.func.value.id == "ctx"
+    ) for c in ast.walk(fn))
+
+STAFF_OK = {"r_sale", "r_mypw"}  # any signed-in user, enforced by the shared HTTP layer
 unchecked = []
-for path, fn in routes.items():
-    calls = {c.func.id for c in ast.walk(funcs[fn]) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
-    if fn not in STAFF_OK and not calls & {"allow", "reauth"}:
-        unchecked.append("%s (%s)" % (path, fn))
-R.ok(routes and not unchecked, "every endpoint function calls allow() or reauth() (%d endpoints)" % len(routes) + ("" if not unchecked else " -> no permission check: " + ", ".join(unchecked)))
+for path, name in routes.items():
+    fn = funcs[name]
+    authorized = has_role_check(fn)
+    if not authorized:
+        delegates = [c for c in ast.walk(fn) if isinstance(c, ast.Call)
+                     and isinstance(c.func, ast.Attribute)
+                     and isinstance(c.func.value, ast.Name)
+                     and c.func.value.id in services
+                     and c.func.attr == name]
+        authorized = any(name in services[c.func.value.id]
+                         and has_role_check(services[c.func.value.id][name])
+                         for c in delegates)
+    if name not in STAFF_OK and not authorized:
+        unchecked.append("%s (%s)" % (path, name))
+R.ok(routes and not unchecked, "every endpoint checks allow() or reauth(), including delegated services (%d endpoints)" % len(routes) + ("" if not unchecked else " -> no permission check: " + ", ".join(unchecked)))
 
 # 6. SQL must use ? placeholders, never text pasted together from variables
 risky = []
