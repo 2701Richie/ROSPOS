@@ -64,9 +64,27 @@ PENDING_SALE_REQUEST = None  # (user id, request id, sale number), persisted ato
 
 
 def save():
-    """Atomically commit state, audit events and payment idempotency keys."""
-    global PENDING_SALE_REQUEST
-    persist_state(db, S, PENDING_AUDIT_EVENTS, PENDING_SALE_REQUEST)
+    """Commit state atomically and restore the last durable snapshot if saving fails.
+
+    A failed SQLite transaction must not leave unsaved stock/sales in memory.
+    This recovery is only invoked on errors; normal saves have no extra read.
+    """
+    global S, PENDING_SALE_REQUEST
+    try:
+        persist_state(db, S, PENDING_AUDIT_EVENTS, PENDING_SALE_REQUEST)
+    except Exception:
+        # persist_state rolls back the SQLite transaction. Discard only
+        # uncommitted state and its queued events, never invent a successful sale.
+        # If the disk is unreadable too, retain the original exception.
+        try:
+            restored = get("state") or {"p": [], "s": [], "g": []}
+            restored.setdefault("purchases", [])
+            restored.setdefault("suppliers", [])
+            S = restored
+            PENDING_AUDIT_EVENTS.clear()
+        finally:
+            PENDING_SALE_REQUEST = None
+        raise
     PENDING_SALE_REQUEST = None
 
 
