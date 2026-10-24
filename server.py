@@ -21,6 +21,7 @@ from poscore.auth_sessions import (hash_password as hash_pw, public_account as a
                                    create_session, resolve_session)
 from poscore.state_views import public_state, cashier_state, current_sales_state
 from poscore.storage import open_database, read_key, write_key, persist_state
+from poscore import settings_service
 from poscore import restore_service
 from poscore import purchases_service
 from poscore import inventory_service
@@ -556,37 +557,8 @@ def shown(v):
 
 
 def r_settings(b, ip):
-    reauth(ip, b, "owner")
-    cur = settings()
-    store = " ".join(str(b.get("store", "")).split())
-    if len(store) > 60:
-        raise Err(400, "Store name must be 60 characters or fewer.")
-    hrs_in, days_in = b.get("session_hours"), b.get("backup_days")
-    if isinstance(hrs_in, bool) or isinstance(days_in, bool):
-        raise Err(400, "Enter whole numbers for backup days and a number for the sign-in hours.")
-    try:
-        hrs, days = float(hrs_in), int(str(days_in).strip())
-    except (TypeError, ValueError):
-        raise Err(400, "Enter whole numbers for backup days and a number for the sign-in hours.")
-    if not math.isfinite(hrs) or not 1 <= hrs <= 72:
-        raise Err(400, "Stay signed in must be between 1 and 72 hours.")
-    if not 7 <= days <= 365:
-        raise Err(400, "Keep between 7 and 365 days of backups.")
-    rc = {}
-    for k, mx in RC_LIMITS.items():
-        if k in b and not isinstance(b[k], str):
-            raise Err(400, "%s must be text." % SETTING_LABELS[k])
-        rc[k] = " ".join(b[k].split()) if k in b else cur[k]  # a request without the field keeps the saved value
-        if len(rc[k]) > mx:
-            raise Err(400, "%s must be %d characters or fewer." % (SETTING_LABELS[k], mx))
-    new = dict({"store": store, "session_hours": hrs, "backup_days": days}, **rc)
-    changed = [k for k in new if new[k] != cur[k]]
-    if changed:
-        put("settings", new)
-        for k in changed:
-            log("Settings", "Changed: " + SETTING_LABELS[k], shown(cur[k]), shown(new[k]), 0)
-        save()
-    return {"msg": "Settings saved." if changed else "No changes."}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return settings_service.r_settings(sys.modules[__name__], b, ip)
 
 
 def supplier_by_id(i):
