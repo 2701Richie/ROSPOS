@@ -11,6 +11,11 @@ HOME_DIR="$(getent passwd "$U" | cut -d: -f6)"
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE=/etc/systemd/system/pos.service
 LAUNCHER=pos.desktop
+# Never overwrite or uninstall another application's pos.service unit.
+if [ -e "$SERVICE" ] && ! grep -qx 'Description=ROSPOS' "$SERVICE"; then
+  echo "Refusing to modify $SERVICE: it does not belong to ROSPOS."
+  exit 1
+fi
 
 if [ "${1:-}" = "--uninstall" ]; then
   systemctl disable --now pos 2>/dev/null || true
@@ -58,9 +63,10 @@ Wants=network-online.target
 User=$U
 WorkingDirectory=$APP_DIR
 Environment=POS_PORT=80
-ExecStart=$PY $APP_DIR/server.py
+ExecStart="$PY" "$APP_DIR/server.py"
 Restart=always
 RestartSec=3
+UMask=0077
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
