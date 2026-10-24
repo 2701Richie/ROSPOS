@@ -13,6 +13,18 @@ const run=(h,code)=>vm.runInContext(code,h.ctx);
 const pending=[];
 const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
 
+// ---- CSV import over the backend's 5,000-row limit fails before upload ----
+{
+ const h=load('import.js',{api:async()=>({error:'unexpected upload'})});
+ const rows=Array.from({length:5001},(_,i)=>'Bulk '+i+',10').join('\n');
+ const tooMany=run(h,'toRows('+JSON.stringify('name,price\n'+rows)+')');
+ ok(/5,000/.test(tooMany.error)&&/No changes were saved/.test(tooMany.error),
+   'import: a CSV with 5,001 rows is refused locally with a clear limit');
+ const boundary=run(h,'toRows('+JSON.stringify('name,price\n'+rows.split('\n').slice(0,5000).join('\n'))+')');
+ ok(!boundary.error&&boundary.rows.length===5000,
+   'import: a 5,000-row CSV stays within the allowed batch limit');
+}
+
 // ---- Reorder: zero-stock products always appear ----
 {
  const h=load('reorder.js',{S:{p:[{id:1,n:'Alpha',p:5,s:0,m:0},{id:2,n:'Beta',p:5,s:3,m:0},{id:3,n:'Gamma',p:5,s:0,m:4},{id:4,n:'Delta',p:5,s:9,m:4}],s:[],g:[]}});
