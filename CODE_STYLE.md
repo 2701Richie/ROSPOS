@@ -15,7 +15,8 @@
 - `js/products.js`, `js/purchases.js`, `js/reorder.js`: inventory workflows.
 - `js/reports.js`, `js/logs.js`, `js/receipts.js`: read-only history and reporting UI.
 - `style.css`: shared tokens first, component styles next, responsive overrides last.
-- `server.py`: HTTP endpoints, authorization decisions, locking, transaction mutations, and database persistence.
+- `server.py`: HTTP endpoints, authorization and locking, runtime state, persistence coordination, and stable `r_*` wrappers.
+- `poscore/*_service.py`: account, sales, inventory/import, purchases, restore and settings handlers. Each accepts the current server runtime as `ctx` (provided by the wrapper) and must not import `server`.
 - `poscore/storage.py`: WAL database initialization, key/value access, and atomic state, audit and payment-key commits.
 - `poscore/values.py`: numeric and date validation, pure helpers.
 - `poscore/auth_sessions.py`: password hashing and session cookie lifecycle.

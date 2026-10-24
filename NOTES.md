@@ -42,7 +42,7 @@ Internal stock and sales counting tool. Python server on the main PC or store ma
 
 **Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/check.py --fast` after changes and the full checker before commits, not after every edit.
 
-**In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Built and committed locally (not pushed): zero-stock items in Reorder, Full screen button, typed quantity on Sell cart lines, bulk delete in Products, cost field with cost reports (cost visible to managers and owners only), redesigned 58 mm receipt with direct RawBT printing (printer not yet tested on the real device; RawBT showed a "WRC error" before). Queued, not started: in-app updater (owner only, safety backup first); see "Roadmap" below.
+**Phase 6 modularization:** All 17 `r_*` operation handlers are delegated to import-safe modules in `poscore/`. The HTTP router, request lock, runtime state, storage coordination and compatibility wrappers remain in `server.py`. New operations belong in the relevant service module with a thin server wrapper and a regression test. These six Phase 6 commits are local only until the owner authorizes a push. Real-device RawBT printing and tablet performance remain unverified.
 
 ## Files
 
@@ -50,8 +50,8 @@ Internal stock and sales counting tool. Python server on the main PC or store ma
 |---|---|
 | `install-lubuntu.sh` | One-time setup for the store laptop (Lubuntu/Ubuntu/Debian): boot service, `pos.local` name, port 80, firewall, desktop icon. `--uninstall` undoes it |
 | `install-arch.sh` | Same setup for Arch, used for testing |
-| `server.py` | HTTP entrypoint, transaction handlers, SQLite persistence, authorization decisions and scheduled jobs. |
-| `poscore/` | Import-safe backend helpers for validation, sessions, atomic SQLite persistence, scoped state responses, archive reads/writes and audit queries/events. |
+| `server.py` | HTTP entrypoint, runtime state, transaction wrappers, SQLite persistence coordination, authorization and scheduled jobs. |
+| `poscore/` | Import-safe helpers plus account, sales, inventory/import, purchase/supplier, restore and settings transaction services. |
 | `archives/` | One readable JSON file per day (`sales-YYYY-MM-DD.json`) for sales and audit rows older than 7 days. Not in git. Local only, like `data/` |
 | `index.html` | Page structure only: header tabs, the four sections, popups |
 | `style.css` | All styling, light and dark |
@@ -127,10 +127,22 @@ Errors come back as `{error}`.
 ## How to add a feature
 
 1. Find the screen: edit its one `js/*.js` file (and `index.html` / `style.css` if needed).
-2. If it changes data, add or edit one `r_*` function and a line in `ROUTES` in `server.py`. Validate everything on the server.
+2. If it changes data, add or edit the handler in the corresponding `poscore/*_service.py`; register a thin `r_*` wrapper in `server.py` and `ROUTES`. Validate everything on the server.
 3. Update this file's data shapes, endpoints, or rules if they changed.
 
-## Roadmap (planned, none of this is built; order = suggested build order, owner picks)
+## Development phase roadmap
+
+| Phase | Status |
+|---|---|
+| 1 — Code readability and foundation | Complete |
+| 2 — Purchases and Reorder | Complete |
+| 3 — Performance and lighter synchronization | Complete |
+| 4 — Reports, Receipts and Logs | Complete |
+| 5 — CSS consolidation | Complete |
+| 6 — Backend modularization | Complete (local commits, awaiting push authorization) |
+| 7 — Final UI, security and performance validation | Not started |
+
+## Feature backlog (planned separately; owner picks)
 
 Each feature gets: its own small commit, a test in `tests/`, and a line in NOTES. CSV bulk add/edit already exists (`js/import.js`); the items below are new.
 

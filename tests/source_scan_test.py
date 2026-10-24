@@ -104,17 +104,25 @@ for path, name in routes.items():
         unchecked.append("%s (%s)" % (path, name))
 R.ok(routes and not unchecked, "every endpoint checks allow() or reauth(), including delegated services (%d endpoints)" % len(routes) + ("" if not unchecked else " -> no permission check: " + ", ".join(unchecked)))
 
-# 6. SQL must use ? placeholders, never text pasted together from variables
+# 6. Scan all transaction services as well as server.py for unsafe SQL and execution.
+# Moving an endpoint must not silently remove its code from this security check.
+python_sources = {"server.py": (server_src, tree)}
+for name in services:
+    path = "poscore/" + name + ".py"
+    source = read(path)
+    python_sources[path] = (source, ast.parse(source))
 risky = []
-for n in ast.walk(tree):
-    if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("execute", "executemany") and n.args:
-        a = n.args[0]
-        if isinstance(a, ast.JoinedStr) or (isinstance(a, ast.BinOp) and isinstance(a.op, ast.Mod)) or \
-           (isinstance(a, ast.Call) and isinstance(a.func, ast.Attribute) and a.func.attr == "format"):
-            risky.append("server.py:%d" % n.lineno)
+for path, (source, module_tree) in python_sources.items():
+    for n in ast.walk(module_tree):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("execute", "executemany") and n.args:
+            a = n.args[0]
+            if isinstance(a, ast.JoinedStr) or (isinstance(a, ast.BinOp) and isinstance(a.op, ast.Mod)) or \
+               (isinstance(a, ast.Call) and isinstance(a.func, ast.Attribute) and a.func.attr == "format"):
+                risky.append("%s:%d" % (path, n.lineno))
 R.ok(not risky, "no SQL statement is built by formatting text into it" + ("" if not risky else " -> " + ", ".join(risky[:5])))
-dangerous = [w for w in ("eval(", "exec(", "os.system(", "shell=True", "pickle.", "__import__(") if w in server_src]
-R.ok(not dangerous, "server.py uses no eval/exec/shell/pickle" + ("" if not dangerous else " -> " + ", ".join(dangerous)))
+dangerous = ["%s: %s" % (path, w) for path, (source, _) in python_sources.items()
+             for w in ("eval(", "exec(", "os.system(", "shell=True", "pickle.", "__import__(") if w in source]
+R.ok(not dangerous, "server and services use no eval/exec/shell/pickle" + ("" if not dangerous else " -> " + ", ".join(dangerous)))
 js_danger = [rel(f) + ": " + w for f in JS for w in ("eval(", "new Function(", "document.write(") if w in read(rel(f))]
 R.ok(not js_danger, "scripts use no eval, new Function or document.write" + ("" if not js_danger else " -> " + ", ".join(js_danger[:3])))
 

@@ -13,7 +13,9 @@ import tempfile
 ROOT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, ROOT)
 
-from poscore import archive_store, audit_events, audit_queries, auth_sessions, history, state_views, values
+from poscore import (accounts_service, archive_store, audit_events, audit_queries, auth_sessions,
+                     history, inventory_service, purchases_service, restore_service, sales_service,
+                     settings_service, state_views, values)
 
 failures = 0
 

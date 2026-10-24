@@ -1,6 +1,6 @@
 # ROSPOS: Point of Sale System
 
-The HTTP server and transaction handlers are in `server.py`, with shared backend services in `poscore/`. The screens are `index.html`, `style.css` and the `js` folder. Keep all of these together in one folder. Needs Python 3.8 or newer. Nothing else to install.
+The HTTP router, request lock and compatibility wrappers are in `server.py`; transaction handlers and shared backend services are in `poscore/`. The screens are `index.html`, `style.css` and the `js` folder. Keep all of these together in one folder. Needs Python 3.8 or newer. Nothing else to install.
 
 ## Getting it onto a new laptop
 
