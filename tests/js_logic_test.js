@@ -51,6 +51,27 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(run(h,'picked()').some(x=>x.n==='Zinc Tablets'),'reorder: ticking an item persists when search is cleared');
 }
 
+// ---- Reorder: large restock lists only mount the active page ----
+{
+ const products=Array.from({length:205},(_,i)=>({id:i+1,n:'Stock '+String(i+1).padStart(3,'0'),p:10,s:0,m:5,e:''}));
+ const h=load('reorder.js',{S:{p:products,s:[],g:[],suppliers:[],purchases:[]}});
+ run(h,'drawRdr()');
+ ok((h.el('#reorderRows').innerHTML.match(/class="rn"/g)||[]).length===80&&
+    h.el('#reorderPageInfo').textContent==='Page 1 of 3',
+    'reorder: first page limits DOM to 80 restock rows');
+ h.el('#reorderNext').onclick();
+ ok((h.el('#reorderRows').innerHTML.match(/class="rn"/g)||[]).length===80&&
+    h.el('#reorderPageInfo').textContent==='Page 2 of 3',
+    'reorder: next page shows the correct slice');
+ h.el('#reorderNext').onclick();
+ ok((h.el('#reorderRows').innerHTML.match(/class="rn"/g)||[]).length===45&&
+    h.el('#reorderNext').disabled,
+    'reorder: last page shows remaining rows without losing order options');
+ h.el('#rSearch').value='Stock 205';h.el('#rSearch').oninput();
+ ok(run(h,'reorderPage')===0&&/Stock 205/.test(h.el('#reorderRows').innerHTML),
+    'reorder: searching finds items on later pages and resets pagination');
+}
+
 // ---- Reorder: professional printable order sheet ----
 {
  const h=load('reorder.js',{S:{p:[{id:1,n:'Paracetamol 500mg',p:8,s:0,m:5}],s:[],g:[],purchases:[{product_id:1,supplier_id:2,supplier_name:'Trusted Supplier',unit_cost:12.5,date:'2026-10-20'}]},storeName:()=> 'ROSPOS Pharmacy',cfg:()=>({rc_addr:'Banate, Iloilo',rc_phone:'09123456789',rc_tag:'Health and inventory made simple',rc_foot:'Thank you'})});

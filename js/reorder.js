@@ -1,3 +1,5 @@
+const REORDER_ROWS_PER_PAGE=80;
+let reorderPage=0;
 // reorder.js: Reorder list with supplier price comparison and supplier-specific order sheets.
 let rQ={},rX={};
 function margin(){try{const v=parseFloat(localStorage.getItem('pos-margin'));return isNaN(v)?25:v}catch(e){return 25}}
@@ -91,12 +93,13 @@ function renderReorderSearchResults(matches, query, supplierId) {
   }
   panel.innerHTML = matches.length
     ? '<div class="reorder-search-results-head">Matching products — press Add to order</div>' +
-      matches.map(row => `<div class="reorder-search-result">
+      matches.slice(0,REORDER_ROWS_PER_PAGE).map(row => `<div class="reorder-search-result">
         <span><strong>${esc(row.p.n)}</strong>
           <small>Stock: ${row.p.s} · Min: ${row.p.m}</small></span>
         <button type="button" class="radd" data-id="${esc(row.p.id)}">
           ${rX[row.p.id] ? 'Remove from order' : 'Add to order'}
         </button></div>`).join('')
+      +(matches.length>REORDER_ROWS_PER_PAGE?'<p class="mu">Showing first '+REORDER_ROWS_PER_PAGE+' of '+matches.length+' matches. Refine your search for more.</p>':'')
     : '<p class="mu">No matching products.</p>';
 }
 
@@ -108,8 +111,13 @@ function drawRdr() {
   const rows = reorderDisplayRows(list, matches);
 
   renderReorderSearchResults(matches, query, list.sid);
+  reorderPage=Math.min(reorderPage,Math.max(0,Math.ceil(rows.length/REORDER_ROWS_PER_PAGE)-1));
+  const offset=reorderPage*REORDER_ROWS_PER_PAGE;
+  $('#reorderPrev').disabled=reorderPage===0;
+  $('#reorderNext').disabled=offset+REORDER_ROWS_PER_PAGE>=rows.length;
+  $('#reorderPageInfo').textContent='Page '+(reorderPage+1)+' of '+Math.max(1,Math.ceil(rows.length/REORDER_ROWS_PER_PAGE));
   $('#reorderRows').innerHTML = rows.length
-    ? rows.map(rrow).join('')
+    ? rows.slice(offset,offset+REORDER_ROWS_PER_PAGE).map(rrow).join('')
     : `<tr><td colspan="9" class="mu reorder-empty">${
         list.sid ? 'No items added yet. Search above and press Add to order.'
         : query ? 'No matching restock items.' : 'No items currently need restocking.'
@@ -165,8 +173,10 @@ function picked() {
 
   return selected.sort((a, b) => a.n.localeCompare(b.n));
 }
-$('#rSupplier').onchange=()=>drawRdr();
-$('#rSearch').oninput=()=>drawRdr();
+$('#rSupplier').onchange=()=>{reorderPage=0;drawRdr()};
+$('#rSearch').oninput=()=>{reorderPage=0;drawRdr()};
+$('#reorderPrev').onclick=()=>{if(reorderPage>0){reorderPage--;drawRdr()}};
+$('#reorderNext').onclick=()=>{reorderPage++;drawRdr()};
 $('#v-rdr').onclick=e=>{const b=e.target.closest('.radd');if(!b)return;const id=b.dataset.id;rX[id]=!rX[id];drawRdr()};
 $('#v-rdr').onchange=e=>{const t=e.target;if(t.id==='rmg'){const v=parseFloat(t.value);try{localStorage.setItem('pos-margin',isNaN(v)||v<0?25:v)}catch(x){}drawRdr();badge()}else if(t.classList.contains('ri')){rX[t.dataset.id]=t.checked;drawRdr()}else if(t.classList.contains('rn')){const v=t.value.trim();if(/^\d+$/.test(v))rQ[t.dataset.id]=+v;else t.value=rQ[t.dataset.id]??sug((S.p||[]).find(p=>String(p.id)===t.dataset.id));updateReorderSelection()}};
 function updateReorderSelection(){const n=picked().length,e=$('#rselected');if(e){const s=$('#rSupplier')?.selectedOptions?.[0]?.textContent||'';e.textContent=n+' item'+(n===1?'':'s')+' selected · '+(($('#rSupplier')?.value)?'order assigned to '+s:'restock items selected by default')+' · sorted A–Z'}const c=$('#rselectedCount');if(c)c.textContent=n}
