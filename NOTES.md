@@ -8,7 +8,7 @@ Internal stock and sales counting tool. Python server on the main PC or store ma
 
 **Safety:** never touch `data/` or `backups/` (real database), never start, stop or restart the POS server without asking. Tests use temp folders and a temp server on port 8998.
 
-**Pushing:** `origin` uses SSH (`git@github.com:2701Richie/ROSPOS.git`), so `git push origin master` needs no password. Always run it as `GIT_TERMINAL_PROMPT=0 timeout 60 git push origin master` and write the output to a file: if it ever stalls it is waiting for a password, so stop it instead of waiting (a stalled HTTPS push is how this was found). Never put a token in the remote URL or in a file. After every push run `python3 tests/run.py --clone` to prove a fresh copy from GitHub passes.
+**Pushing:** `origin` uses SSH (`git@github.com:2701Richie/ROSPOS.git`), so `git push origin master` needs no password. Always run it as `GIT_TERMINAL_PROMPT=0 timeout 60 git push origin master` and write the output to a file: if it ever stalls it is waiting for a password, so stop it instead of waiting (a stalled HTTPS push is how this was found). Never put a token in the remote URL or in a file. After every push run `python3 tests/check.py --clone` to prove a fresh copy from GitHub passes.
 
 **Which file for which task** (details in the Files table below):
 
@@ -31,16 +31,16 @@ Internal stock and sales counting tool. Python server on the main PC or store ma
 - Checks only write to temp folders; the engine fails if real `data/`, `backups/`, `archives/` change or a check creates a new file in the repo. Edits by someone else during a run only print a note.
 
 **Older single runner (still works):**
-- `python3 tests/run.py` tests the working tree including uncommitted edits.
-- `python3 tests/run.py --clone` clones GitHub and tests that (run it after every push).
-- `python3 tests/run.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/receipt_settings_test.py`, `tests/logs_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
-- Add a test for every new rule with `python3 tests/check.py --new NAME` (no registration needed; `run.py` lists its checks by hand).
+- `python3 tests/check.py` tests the working tree including uncommitted edits.
+- `python3 tests/check.py --clone` clones GitHub and tests that (run it after every push).
+- `python3 tests/check.py -v` adds the full output of each check. Each check also runs alone: `tests/e2e.py`, `tests/numeric_validation_test.py`, `tests/archive_test.py`, `tests/bulk_delete_test.py`, `tests/cost_test.py`, `tests/receipt_settings_test.py`, `tests/logs_test.py`, `tests/theme_test.js`, `tests/js_logic_test.js` (each takes an optional source folder).
+- Add a test for every new rule with `python3 tests/check.py --new NAME` (no registration needed; `check.py` discovers tests automatically).
 
 **Phase 5 CSS regression:** `PYTHONDONTWRITEBYTECODE=1 python3 tests/css_snapshot.py --verify` checks the responsive sidebar and light/dark themes in isolated headless Chromium (42 combinations; no POS database). For a controlled CSS-only refactor, capture an original snapshot using `--write /tmp/rospos-css-before.json`, make changes, then compare using `--compare /tmp/rospos-css-before.json`. The tool serves the actual stylesheet over an isolated local static server and disables transitions while sampling layout. ChromeDriver is optional and this test is not part of the standard quick suite.
 
 **Screenshots (only for visual work):** the harness lives outside the repo, in `pos-tests/demo` next to the project folder. `bash pos-tests/demo/shoot.sh` copies the front-end, injects fake data (`demo.js`), serves it on port 8077 and saves PNGs in `/tmp/shots` with headless chromium. URL knobs: `?tab=sell|live|rep|set|receipt&taps=0|1|2` (taps = theme button presses). Look at one image, not all.
 
-**Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/run.py` once at the end, not after every edit.
+**Token habits:** grep and read line ranges, not whole files (`server.py` ~870 lines, `style.css` ~310, `js/reports.js` is the largest script). Use `git diff` instead of re-reading. Edit in place and send only changed files. Run `tests/check.py --fast` after changes and the full checker before commits, not after every edit.
 
 **In progress:** daily sales archive (older than 7 days, `archives/`) is committed locally, not pushed. Archive is hardened: sale numbers survive upgrades of older databases, an unreadable archive file is kept aside (`.corrupt-*`) instead of overwritten, archive errors never stop the server or backups, restore rejects odd sale numbers, dates and expiry values. Built and committed locally (not pushed): zero-stock items in Reorder, Full screen button, typed quantity on Sell cart lines, bulk delete in Products, cost field with cost reports (cost visible to managers and owners only), redesigned 58 mm receipt with direct RawBT printing (printer not yet tested on the real device; RawBT showed a "WRC error" before). Queued, not started: in-app updater (owner only, safety backup first); see "Roadmap" below.
 
@@ -136,7 +136,7 @@ Each feature gets: its own small commit, a test in `tests/`, and a line in NOTES
 
 | # | Feature | Size | Touches | Notes and risks |
 |---|---|---|---|---|
-| 1 | In-app updater (owner only) | large | `server.py`, `js/settings.js`, `install-*.sh` | Safety backup first, run `tests/run.py` on the new code before switching, keep previous version for one-click rollback. Decide method first: git pull or uploaded zip. Never restart without owner confirming. |
+| 1 | In-app updater (owner only) | large | `server.py`, `js/settings.js`, `install-*.sh` | Safety backup first, run `tests/check.py` on the new code before switching, keep previous version for one-click rollback. Decide method first: git pull or uploaded zip. Never restart without owner confirming. |
 | 2 | Remote access to the store laptop | infra | outside the repo | For updates and fixes. Prefer a private tunnel (no open router ports) plus the existing login. Decide tool before building. |
 | 3 | Sections, printable count sheets, manager "check counts" screen, differences report | large | new `js/counts.js`, `server.py`, `index.html`, `style.css` | Counting stays manual; staff assigned to sections. Build in this order: sections on products, count sheets, check-counts screen, differences report. |
 | 4 | Later | n/a | n/a | Write-offs, daily comparison with the official POS, batch numbers, HTTPS and a sturdier web server. |
