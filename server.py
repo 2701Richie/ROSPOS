@@ -21,6 +21,7 @@ from poscore.auth_sessions import (hash_password as hash_pw, public_account as a
                                    create_session, resolve_session)
 from poscore.state_views import public_state, cashier_state, current_sales_state
 from poscore.storage import open_database, read_key, write_key, persist_state
+from poscore import inventory_service
 from poscore import sales_service
 from poscore import accounts_service
 
@@ -445,131 +446,23 @@ def r_mypw(b, ip):
 
 
 def r_product(b, ip):
-    allow("manager")
-    n, p = str(b.get("n", "")).strip(), b.get("p")
-    if not n or not good_num(p):
-        raise Err(400, "Enter a product name and a valid price.")
-    e, m, i = str(b.get("e") or "").strip(), nint(b.get("m")), b.get("id")
-    if not valid_expiry(e):
-        raise Err(400, "Enter a valid expiry date, or leave it blank.")
-    if len(n) > 200:
-        raise Err(400, "Product name must be 200 characters or fewer.")
-    k, own = key(n), (prod(i) if i else None)
-    if k and not (i and not own):
-        clash = next((p for p in S["p"] if p is not own and key(p["n"]) == k), None)
-        if clash and (own is None or key(own["n"]) != k):  # an old duplicate may still be edited without renaming it
-            raise Err(409, "A product named '%s' already exists." % clash["n"])
-    has_c = "c" in b
-    c = cost_of(b.get("c")) if has_c else None  # checked before anything changes
-    if i:
-        x = prod(i)
-        if not x:
-            raise Err(404, "Product not found.")
-        before_fields = {k: x.get(k) for k in ("n", "p", "c", "e", "m")}
-        if R(p) != x["p"]:
-            log(x["n"], "Price changed", x["p"], R(p))
-        if has_c and c != x.get("c"):
-            log(x["n"], "Cost changed", x.get("c") or 0, c or 0, x["id"],
-                audit_values=(x.get("c"), c))
-            set_cost(x, c)
-        x.update(n=n, p=R(p), e=e, m=m)
-        field_names = {"n": "Product name", "e": "Expiry date", "m": "Reorder level"}
-        for field, label in field_names.items():
-            if before_fields.get(field) != x.get(field):
-                queue_event("inventory", label + " changed", entity_type="product", entity_id=x["id"],
-                    entity_name=x["n"], old_value=before_fields.get(field), new_value=x.get(field),
-                    details={"field": field})
-    else:
-        s, i = nint(b.get("s")), int(time.time() * 1000)
-        while prod(i):
-            i += 1
-        newp = {"id": i, "n": n, "p": R(p), "s": s, "e": e, "m": m}
-        set_cost(newp, c)
-        S["p"].append(newp)
-        queue_event("inventory", "Product created", entity_type="product", entity_id=i, entity_name=n,
-                    new_value={"name": n, "price": R(p), "cost": c, "stock": s, "reorder": m, "expiry": e})
-        if s:
-            log(n, "New product +%d" % s, 0, s, i, "Initial stock")
-    save()
-    return {}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return inventory_service.r_product(sys.modules[__name__], b, ip)
 
 
 def r_delete(b, ip):
-    allow("manager")
-    x = prod(b.get("id"))
-    if not x:
-        raise Err(404, "Product not found.")
-    why = str(b.get("why", "")).strip()
-    if not why:
-        raise Err(400, "Enter a reason for deleting this product.")
-    log(x["n"], "Deleted", x["s"], 0, x["id"], why,
-        details={"product_snapshot": {k: x.get(k) for k in ("id", "n", "p", "c", "s", "e", "m")}})
-    S["p"].remove(x)
-    save()
-    return {}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return inventory_service.r_delete(sys.modules[__name__], b, ip)
 
 
 def r_delete_many(b, ip):
-    """Delete several products at once (manager and owner). All or nothing; one audit row per product; sales history is kept."""
-    allow("manager")
-    ids = b.get("ids")
-    if not isinstance(ids, list) or not 1 <= len(ids) <= 100000:
-        raise Err(400, "Select between 1 and 100000 products to delete.")
-    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
-        raise Err(400, "The selection is not valid.")
-    why = str(b.get("why", "")).strip()
-    if not why:
-        raise Err(400, "Enter a reason for deleting these products.")
-    # Validate the complete selection before changing anything, then replace the
-    # product list in one operation. This makes the persisted set explicit.
-    selected = list(dict.fromkeys(ids))
-    by_id = {p.get("id"): p for p in S["p"]}
-    if any(i not in by_id for i in selected):
-        raise Err(404, "A selected product no longer exists. Nothing was deleted.")
-    items = [by_id[i] for i in selected]
-    snapshot("pre-bulk-delete")
-    operation_id = new_operation_id("bulk-delete")
-    queue_event("inventory", "Bulk deletion started", entity_type="operation", entity_id=operation_id,
-                entity_name="Delete %d products" % len(items), operation_id=operation_id,
-                details={"selected": len(items), "reason": why})
-    for x in items:
-        log(x["n"], "Deleted", x["s"], 0, x["id"], why, operation_id=operation_id,
-            details={"product_snapshot": {k: x.get(k) for k in ("id", "n", "p", "c", "s", "e", "m")}})
-    selected_set = set(selected)
-    S["p"] = [p for p in S["p"] if p.get("id") not in selected_set]
-    save()
-    # Guard against a persistence regression: success only if the saved state
-    # no longer contains any selected product IDs.
-    saved = get("state") or {}
-    if any(p.get("id") in selected_set for p in saved.get("p", [])):
-        record_event("system", "Bulk deletion persistence verification failed", entity_type="operation",
-                     entity_id=operation_id, entity_name="Delete products", operation_id=operation_id,
-                     details={"selected": len(items)}, status="failed")
-        raise Err(500, "Bulk delete could not be saved. Please retry or contact the owner.")
-    record_event("inventory", "Bulk deletion completed", entity_type="operation", entity_id=operation_id,
-                 entity_name="Delete %d products" % len(items), operation_id=operation_id,
-                 details={"deleted": len(items), "reason": why})
-    return {"msg": "Deleted %d product%s." % (len(items), "" if len(items) == 1 else "s")}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return inventory_service.r_delete_many(sys.modules[__name__], b, ip)
 
 
 def r_stock(b, ip):
-    allow("manager")
-    p, v, mode = prod(b.get("id")), str(b.get("v", "")).strip(), b.get("mode")
-    if not p:
-        raise Err(404, "Product not found.")
-    if not (v.isascii() and v.isdigit()) or int(v) > MAX_NUM or (mode == "add" and int(v) < 1):
-        raise Err(400, "Type a whole number first" + (" (1 or more)." if mode == "add" else "."))
-    o = p["s"]
-    z = o + int(v) if mode == "add" else int(v)
-    if z > MAX_NUM:
-        raise Err(400, "That count is too large.")
-    if z == o:
-        raise Err(400, "The count did not change.")
-    why = str(b.get("why", "")).strip() or ("Stock received" if mode == "add" else "Stock count correction")
-    p["s"] = z
-    log(p["n"], "Received +%s" % v if mode == "add" else "Count set", o, z, p["id"], why)
-    save()
-    return {"msg": "%s: %d \u2192 %d" % (p["n"], o, z)}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return inventory_service.r_stock(sys.modules[__name__], b, ip)
 
 
 def find_sale(no):
@@ -738,141 +631,8 @@ def num(v):
 
 
 def r_import(b, ip):
-    allow("manager")
-    mode, rows = b.get("mode"), b.get("rows")
-    why = str(b.get("why", "")).strip()
-    if b.get("apply") and not why:
-        raise Err(400, "Enter a reason for this import.")
-    if mode not in ("products", "add", "set") or not isinstance(rows, list):
-        raise Err(400, "Bad import request.")
-    if len(rows) > 5000:
-        raise Err(400, "Too many rows. Split the file (5000 rows at most).")
-    idx = {}
-    for p in S["p"]:
-        idx.setdefault(key(p["n"]), []).append(p)
-    seen, ops, errors, notes = set(), [], [], []
-    for i, r in enumerate(rows, start=2):  # row 1 is the heading row
-        errs, vals = [], {}
-        name = " ".join(str(r.get("name") or "").split())
-        k = key(name)
-        if not k:
-            errs.append("Name is missing.")
-        elif k in seen:
-            errs.append("This name appears more than once in the file.")
-        seen.add(k)
-        for f, label in (("price", "Price"), ("reorder", "Reorder"), ("quantity", "Quantity")):
-            try:
-                vals[f] = num(r.get(f))
-            except ValueError:
-                vals[f] = None
-                errs.append(label + " is not a valid number.")
-            if f != "price" and vals[f] is not None and vals[f] != int(vals[f]):
-                errs.append(label + " must be a whole number.")
-        try:
-            vals["cost"] = num(r.get("cost"))
-        except ValueError:
-            vals["cost"] = None
-            errs.append("Cost is not a valid number.")
-        found = idx.get(k, []) if k else []
-        if len(found) > 1:
-            errs.append("Matches more than one existing product.")
-        p = found[0] if len(found) == 1 else None
-        price, reorder, qty, cost = vals["price"], vals["reorder"], vals["quantity"], vals["cost"]
-        if mode == "products":
-            if not p and price is None:
-                errs.append("Price is required for a new product.")
-        else:
-            if not p:
-                errs.append("Product not found. Add it first with 'Add or update products'.")
-            if mode == "add" and (qty is None or qty < 1):
-                errs.append("Quantity must be 1 or more.")
-            if mode == "set" and qty is None:
-                errs.append("Count is missing.")
-        if errs:
-            errors += [{"row": i, "msg": m} for m in errs]
-            continue
-        if p and " ".join(p["n"].split()) != name:
-            notes.append("'%s' in the file matched '%s'." % (name, p["n"]))
-        ops.append((p, name, price, reorder, qty, cost))
-    new = upd = same = 0
-    changes = []
-    for p, name, price, reorder, qty, cost in ops:
-        if mode == "products":
-            if p is None:
-                new += 1
-                changes.append({"n": name, "w": "New: price %.2f, stock %d%s" % (price, int(qty or 0), ", cost %.2f" % cost if cost is not None else "")})
-                continue
-            ch = []
-            if price is not None and R(price) != p["p"]:
-                ch.append("price %.2f \u2192 %.2f" % (p["p"], R(price)))
-            if reorder is not None and int(reorder) != p["m"]:
-                ch.append("reorder %d \u2192 %d" % (p["m"], int(reorder)))
-            if cost is not None and R(cost) != p.get("c"):
-                ch.append("cost %s \u2192 %.2f" % ("%.2f" % p["c"] if p.get("c") is not None else "unknown", R(cost)))
-        else:
-            z = p["s"] + int(qty) if mode == "add" else int(qty)
-            ch = ["stock %d \u2192 %d" % (p["s"], z)] if z != p["s"] else []
-        if ch:
-            upd += 1
-            changes.append({"n": p["n"], "w": ", ".join(ch)})
-        else:
-            same += 1
-    plan = {"mode": mode, "new": new, "updated": upd, "unchanged": same, "errors": errors[:50],
-            "errorCount": len(errors), "changes": changes[:200], "more": max(0, len(changes) - 200),
-            "notes": notes[:50], "applied": False}
-    if errors or not b.get("apply"):
-        if errors and b.get("apply"):
-            opid = new_operation_id("csv-import")
-            by_row = {}
-            for issue in errors:
-                by_row.setdefault(issue["row"], []).append(issue["msg"])
-            record_event("inventory", "CSV import validation failed", entity_type="import", entity_id=opid,
-                entity_name="CSV import (%s)" % mode, operation_id=opid,
-                details={"mode": mode, "rows": len(rows), "error_count": len(errors),
-                         "failed_rows": len(by_row), "errors": [{"row": row, "messages": msgs} for row, msgs in sorted(by_row.items())],
-                         "apply_requested": bool(b.get("apply")), "reason": why}, status="failed")
-        return {"plan": plan}
-    operation_id = new_operation_id("csv-import")
-    snapshot("pre-import")
-    for p, name, price, reorder, qty, cost in ops:
-        if mode == "products":
-            if p is None:
-                s = int(qty or 0)
-                newp = {"id": new_id(), "n": name, "p": R(price), "s": s, "e": "", "m": int(reorder or 0)}
-                set_cost(newp, None if cost is None else R(cost))
-                S["p"].append(newp)
-                queue_event("inventory", "Product created", entity_type="product", entity_id=newp["id"],
-                    entity_name=name, operation_id=operation_id,
-                    new_value={"id": newp["id"], "n": name, "p": newp["p"], "c": newp.get("c"), "s": s, "m": newp["m"], "e": newp["e"]},
-                    details={"reason": why})
-                if s:
-                    log(name, "New product +%d" % s, 0, s, S["p"][-1]["id"], why, operation_id=operation_id)
-            else:
-                if price is not None and R(price) != p["p"]:
-                    log(p["n"], "Price changed", p["p"], R(price), p["id"], why, operation_id=operation_id)
-                    p["p"] = R(price)
-                if reorder is not None and int(reorder) != p["m"]:
-                    queue_event("inventory", "Reorder level changed", entity_type="product", entity_id=p["id"],
-                        entity_name=p["n"], operation_id=operation_id, old_value=p["m"], new_value=int(reorder),
-                        details={"field": "m", "reason": why})
-                    p["m"] = int(reorder)
-                if cost is not None and R(cost) != p.get("c"):
-                    log(p["n"], "Cost changed", p.get("c") or 0, R(cost), p["id"], why,
-                        operation_id=operation_id, audit_values=(p.get("c"), R(cost)))
-                    p["c"] = R(cost)
-        else:
-            o = p["s"]
-            z = o + int(qty) if mode == "add" else int(qty)
-            if z != o:
-                p["s"] = z
-                log(p["n"], "Import: received +%d" % int(qty) if mode == "add" else "Import: count set", o, z, p["id"], why, operation_id=operation_id)
-    queue_event("inventory", "CSV import completed", entity_type="import", entity_id=operation_id,
-        entity_name="CSV import (%s)" % mode, operation_id=operation_id,
-        details={"mode": mode, "rows": len(rows), "added": new, "updated": upd,
-                 "unchanged": same, "failed": 0, "reason": why})
-    save()
-    plan["applied"] = True
-    return {"plan": plan}
+    """Compatibility entry point; the HTTP handler holds LOCK."""
+    return inventory_service.r_import(sys.modules[__name__], b, ip)
 
 
 SETTING_LABELS = {"store": "Store name", "session_hours": "Stay signed in (hours)", "backup_days": "Backup days kept",

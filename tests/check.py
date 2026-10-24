@@ -139,11 +139,11 @@ R.done()
 
 # Each known old bug: (name, file, text to find, text to put instead, checks that must notice)
 MUTATIONS = [
-    ("expiry not validated", "server.py", '    if not valid_expiry(e):\n        raise Err(400, "Enter a valid expiry date, or leave it blank.")\n', "", "fuzz,backend_fixes,simulation"),
-    ("duplicate product names allowed", "server.py", 'if clash and (own is None or key(own["n"]) != k):', "if False:", "backend_fixes,simulation"),
+    ("expiry not validated", "poscore/inventory_service.py", '    if not valid_expiry(e):\n        raise ctx.Err(400, "Enter a valid expiry date, or leave it blank.")\n', "", "fuzz,backend_fixes,simulation"),
+    ("duplicate product names allowed", "poscore/inventory_service.py", 'if clash and (own is None or ctx.key(own["n"]) != k):', "if False:", "backend_fixes,simulation"),
     ("restore accepts mismatched sale totals", "server.py", '    if any(not x.get("dc") and abs(R(sum(l["q"] * l["p"] for l in x["l"])) - x["tot"]) > 0.01 for x in d["s"]):\n        raise Err(400, "The backup contains a sale whose total does not match its items.")  # would corrupt every report\n', "", "fuzz"),
     ("void does not put stock back", "server.py", '    p = find_prod(l)\n    if p:\n        o = p["s"]', '    p = find_prod(l)\n    if p and False:\n        o = p["s"]', "simulation,backend_fixes"),
-    ("stock endpoint open to staff", "server.py", 'def r_stock(b, ip):\n    allow("manager")', "def r_stock(b, ip):\n    pass", "permissions,source_scan"),
+    ("stock endpoint open to staff", "poscore/inventory_service.py", 'def r_stock(ctx, b, ip):\n    ctx.allow("manager")', "def r_stock(ctx, b, ip):\n    pass", "permissions,source_scan"),
     ("reorder quantity regex doubled backslash", "js/reorder.js", "/^\\d+$/.test(v)", "/^\\\\d+$/.test(v)", "js_logic,source_scan"),
     ("expiry printed into page unescaped", "js/core.js", "'+esc(p.e)+'", "'+p.e+'", "source_scan"),
     ("page does not escape any text (script injection)", "js/core.js", "const esc=s=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));", "const esc=s=>String(s);", "browser"),
