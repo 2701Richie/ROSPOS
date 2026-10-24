@@ -27,6 +27,7 @@ from poscore import purchases_service
 from poscore import inventory_service
 from poscore import sales_service
 from poscore import accounts_service
+from poscore import cloud_backup
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB", os.path.join(HERE, "data", "pos.db"))
@@ -669,6 +670,15 @@ class H(BaseHTTPRequestHandler):
                 except AuditQueryError as exc:
                     return self.send(400, {"error": str(exc)})
                 return self.send(200, result)
+        if page == "/api/cloud-backup":
+            with LOCK:
+                user, _ = session_user(self)
+                if not user:
+                    return self.send(401, {"error": "Please sign in."})
+                if user.get("role") != "owner":
+                    return self.send(403, {"error": "Only the owner can manage cloud backups."})
+            # rclone is an external process; don't hold the POS sales lock while reading its settings.
+            return self.send(200, cloud_backup.status(with_remotes=True))
         if page == "/api/backup":
             with LOCK:
                 u, _ = session_user(self)
@@ -738,6 +748,40 @@ class H(BaseHTTPRequestHandler):
                 raise Err(413, "Request too large.")
             b = json.loads(self.rfile.read(n) or b"{}", parse_constant=_no_constant, parse_float=_finite_float)
             ip = self.client_address[0]
+            if self.path == "/api/cloud-backup":
+                with LOCK:
+                    owner, _ = session_user(self)
+                    if not owner:
+                        raise Err(401, "Please sign in.")
+                    if owner.get("role") != "owner":
+                        raise Err(403, "Only the owner can manage cloud backups.")
+                    if not check_pw(owner, str(b.get("password", "")),
+                                    "re|%s|%s" % (ip, owner["id"])):
+                        raise Err(403, "Wrong password.")
+                action = b.get("action")
+                try:
+                    if action == "configure":
+                        result = cloud_backup.configure(b.get("remote"), b.get("enabled"))
+                        msg = "Cloud backup settings saved."
+                    elif action == "disconnect":
+                        result = cloud_backup.disconnect()
+                        msg = "Cloud account disconnected from ROSPOS."
+                    elif action == "backup":
+                        if not cloud_backup.status()["enabled"]:
+                            raise ValueError("Connect an encrypted Google Drive remote first.")
+                        if not cloud_backup.launch(db, ARCHIVE_DIR, LOCK, settings()["backup_days"]):
+                            raise ValueError("A cloud backup is already running.")
+                        result = cloud_backup.status(with_remotes=True)
+                        msg = "Cloud backup started."
+                    else:
+                        raise ValueError("Unknown cloud backup action.")
+                except ValueError as exc:
+                    raise Err(400, str(exc))
+                with LOCK:
+                    record_event("activity", "Cloud backup " + str(action),
+                                 actor=owner["name"], entity_type="cloud_backup",
+                                 entity_name=result.get("remote", ""))
+                return self.send(200, {"msg": msg, "cloud": result})
             with LOCK:
                 try:
                     if self.path in PUBLIC:
@@ -807,6 +851,12 @@ def backup_loop():
                              details={"error_type": type(exc).__name__, "message": str(exc)[:500]}, status="failed")
             except Exception:
                 pass
+        try:
+            if cloud_backup.due() and not cloud_backup.JOB_LOCK.locked():
+                cloud_backup.launch(db, ARCHIVE_DIR, LOCK, settings()["backup_days"])
+        except (OSError, ValueError):
+            # A broken optional cloud configuration must never stop local backups.
+            pass
         time.sleep(3600)
 
 

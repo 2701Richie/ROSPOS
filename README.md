@@ -1,20 +1,21 @@
 # ROSPOS: Point of Sale System
 
-The HTTP router, request lock and compatibility wrappers are in `server.py`; transaction handlers and shared backend services are in `poscore/`. The screens are `index.html`, `style.css` and the `js` folder. Keep all of these together in one folder. Needs Python 3.8 or newer. Nothing else to install.
+The HTTP router, request lock and compatibility wrappers are in `server.py`; transaction handlers and shared backend services are in `poscore/`. The screens are `index.html`, `style.css` and the `js` folder. Keep all of these together in one folder. Needs Python 3.8 or newer. No additional Python packages are required; optional Google Drive backups use rclone.
 
 ## Getting it onto a new laptop
 
-```
-sudo apt install -y git gh
-gh auth login
-gh repo clone 2701Richie/ROSPOS
+The GitHub repository contains ROSPOS source code, not the pharmacy database.
+You can clone the public repository with:
+
+```sh
+git clone https://github.com/2701Richie/ROSPOS.git
 cd ROSPOS
-sudo bash install-lubuntu.sh
 ```
 
-The repository is private, so GitHub asks you to sign in first (`gh auth login`: choose GitHub.com, HTTPS, and sign in through the browser). If `gh` is not available on that laptop, create a personal access token on GitHub (Settings, Developer settings, Personal access tokens, read access to this repository) and use `git clone https://github.com/2701Richie/ROSPOS.git`, entering the token as the password.
-
-Your sales data and accounts are **not** stored on GitHub, so a new laptop starts empty. Open `http://pos.local`, enter the setup code (shown with `journalctl -u pos -n 20`) and create the owner account. To bring old data over, download a backup from Reports on the old laptop and restore it here (owner only).
+Then follow the Lubuntu or Arch setup instructions below. A new installation
+starts with an empty database and asks you to set up an Owner. Backups and
+authorization tokens are intentionally excluded from Git and are never shared
+across installations.
 
 ## Easy setup (Lubuntu store laptop, recommended)
 
@@ -85,6 +86,7 @@ Then run `sudo systemctl enable --now pos`. View errors with `journalctl -u pos 
 - In Reports, the owner can download a portable `rospos-backup-YYYY-MM-DD.json` file. Store a copy on a USB drive or another computer; the file contains product, sales and activity history.
 - To restore, select the JSON file in Reports, enter the owner password and confirm. ROSPOS validates the contents and creates a pre-restore database snapshot before replacing current product, sales and activity data. User accounts are not replaced.
 - To keep automatic database backups on a USB drive, start the server with `POS_BACKUP_DIR=/media/you/USB/pos-backups`. Add it as an `Environment=` line in the service file. Ensure the drive is mounted before ROSPOS starts.
+- Optional **encrypted Google Drive backups** support a separate Google account on each installation, daily and on demand. See [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md) for private authorization, encryption-key recovery, and setup.
 - Keep at least one backup somewhere other than the store laptop. A backup stored only on the same laptop does not protect you if the laptop dies.
 - Older browser-version text backups can still be restored from the “Legacy text backup” section in Reports.
 

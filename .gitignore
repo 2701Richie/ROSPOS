@@ -23,3 +23,8 @@ venv/
 .env
 .env.*
 *.log
+
+# Google Drive/rclone per-installation secrets (never publish authorization grants)
+rclone.conf
+cloud-backup.json
+client_secret*.json

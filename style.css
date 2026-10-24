@@ -1084,3 +1084,12 @@ tbody tr:hover{background:var(--ui-hover)}
 .table-pagination{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;padding:14px 8px}
 .table-pagination button{min-height:40px;padding:8px 14px}
 .table-pagination span{font-size:.9rem;color:var(--mu);font-variant-numeric:tabular-nums}
+
+/* Cloud backup settings: keep the optional integration compact on tablets. */
+.settings-cloud-toggle {display:flex!important;align-items:center;gap:10px;line-height:1.5}
+.settings-cloud-toggle input[type="checkbox"] {width:18px!important;height:18px;min-width:18px;margin:0}
+#cloudBackupCard .acts {display:flex;flex-wrap:wrap;gap:8px}
+#cloudBackupCard details {margin-top:16px;line-height:1.65}
+#cloudBackupCard details summary {cursor:pointer;font-weight:600}
+#cloudBackupCard details ol {padding-left:24px;margin:8px 0}
+#cloudBackupCard #cloudStatus {margin:6px 0 14px}
