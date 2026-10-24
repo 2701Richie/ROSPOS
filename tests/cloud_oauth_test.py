@@ -90,7 +90,7 @@ try:
 finally:
     store.Fake.__init__=local_init
 R.ok(not cloud.status()["enabled"], "OAuth start does not enable backups before consent")
-R.ok(not cloud.encrypted_drive_remotes(), "no encrypted cloud remote before consent")
+R.ok(not cloud.status()["connected"], "no connected cloud destination before consent")
 
 class Response:
     def __enter__(self): return self
@@ -114,8 +114,8 @@ finally:
     oauth.urlopen=old_urlopen
     cloud.launch=old_launch
 
-cfg=cloud.status(with_remotes=True)
-R.ok(cfg["enabled"] and cfg["remote"] in cfg["remotes"] and cfg["managed"],
+cfg=cloud.status()
+R.ok(cfg["enabled"] and cfg["connected"] and cloud._managed_remote_valid(cfg["remote"]),
      "Google sign-in auto-selects managed encrypted remote")
 path=oauth.managed_path(cloud)
 R.ok(path.exists() and path.stat().st_mode & 0o077 == 0,
@@ -129,7 +129,7 @@ R.ok(any(dict(parser.items(name)).get("password","").startswith("obscured-")
      "rclone encryption password passed via stdin and stored obscured")
 R.ok("ACCESS_TEST" not in json.dumps(cfg) and "REFRESH_TEST" not in json.dumps(cfg),
      "status never leaks OAuth credentials")
-R.ok(cloud._rclone_for(cfg["remote"], "config", "dump").startswith("{"),
+R.ok(cloud._managed_rclone("config", "dump").startswith("{"),
      "managed rclone remote commands use the private config")
 cloud.disconnect()
 # Expired OAuth grants are rejected before a token exchange.

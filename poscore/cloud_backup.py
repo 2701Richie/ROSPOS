@@ -1,6 +1,6 @@
-"""Optional encrypted cloud backups using the user's local rclone Google Drive crypt remote.
+"""Encrypted cloud backups using only ROSPOS-managed Google OAuth destinations.
 
-OAuth credentials are maintained by rclone outside Git and never reach POS clients.
+Google tokens stay in the POS computer private config, never in client responses.
 This module performs no IO at import.
 """
 import json
@@ -19,7 +19,7 @@ from pathlib import Path
 from poscore import google_oauth
 
 JOB_LOCK = threading.Lock()
-NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+MANAGED = re.compile(r"^rospos_crypt_[0-9a-f]{12}$")
 BUNDLE = re.compile(r"^rospos-\d{8}T\d{6}-[0-9a-f]{8}\.zip$")
 
 
@@ -61,7 +61,7 @@ def _rclone(*args, timeout=25):
         raise RuntimeError("rclone is not installed on this computer.")
     result = subprocess.run(["rclone", *args], capture_output=True, text=True, timeout=timeout)
     if result.returncode:
-        raise RuntimeError("Google Drive operation failed. Check rclone configuration and internet access.")
+        raise RuntimeError("Google Drive operation failed. Check the Google connection and internet access.")
     return result.stdout
 
 
@@ -69,11 +69,35 @@ def _managed_remotes():
     return google_oauth.managed_remotes(sys.modules[__name__])
 
 
-def _rclone_for(remote, *args, timeout=25):
-    if remote in _managed_remotes():
-        return _rclone("--config", str(google_oauth.managed_path(sys.modules[__name__])),
-                       *args, timeout=timeout)
-    return _rclone(*args, timeout=timeout)
+def _managed_rclone(*args, timeout=25):
+    # Never fall back to the user's global rclone.conf.
+    return _rclone("--config", str(google_oauth.managed_path(sys.modules[__name__])),
+                   *args, timeout=timeout)
+
+
+def _managed_remote_valid(remote):
+    """Only a paired Google Drive + encrypted remote made by ROSPOS can upload."""
+    if not isinstance(remote, str) or not MANAGED.fullmatch(remote):
+        return False
+    suffix = remote[len("rospos_crypt_"):]
+    drive = "rospos_drive_" + suffix
+    try:
+        remotes = _managed_remotes()
+    except (OSError, ValueError):
+        return False
+    crypt = remotes.get(remote, {})
+    backend = remotes.get(drive, {})
+    folder = drive + ":ROSPOS-Encrypted/"
+    destination = str(crypt.get("remote", ""))
+    return (crypt.get("type") == "crypt"
+            and destination.startswith(folder)
+            and re.fullmatch(r"[0-9a-f]{16}", destination[len(folder):]) is not None
+            and bool(crypt.get("password")) and bool(crypt.get("password2"))
+            and crypt.get("filename_encryption", "standard") == "standard"
+            and str(crypt.get("directory_name_encryption", "true")).lower() == "true"
+            and backend.get("type") == "drive"
+            and backend.get("scope") == "drive.file"
+            and bool(backend.get("token")))
 
 
 def begin_google_signin(client_id, client_secret, port):
@@ -84,70 +108,39 @@ def complete_google_signin(state, code):
     return google_oauth.complete(state, code, sys.modules[__name__])
 
 
-def encrypted_drive_remotes():
-    """Reject unencrypted remotes, including crypt remotes backed by non-Google providers."""
-    if not shutil.which("rclone"):
-        return []
-    try:
-        cfg = json.loads(_rclone("config", "dump"))
-    except (ValueError, RuntimeError, subprocess.TimeoutExpired):
-        cfg = {}
-    try:
-        cfg.update({k: v for k, v in _managed_remotes().items() if k not in cfg})
-    except (OSError, ValueError):
-        return []
-    found = []
-    for name, info in cfg.items():
-        if not NAME.fullmatch(name) or info.get("type") != "crypt":
-            continue
-        target = str(info.get("remote", ""))
-        base = target.split(":", 1)[0] if ":" in target else ""
-        if (base != name and cfg.get(base, {}).get("type") == "drive"
-                and info.get("password")
-                and info.get("filename_encryption", "standard") == "standard"
-                and str(info.get("directory_name_encryption", "true")).lower() != "false"):
-            found.append(name)
-    return sorted(found)
-
-
-def status(with_remotes=False):
+def status():
     try:
         data, error = _read(), ""
     except (OSError, ValueError) as exc:
         data, error = {}, str(exc)
-    result = {"enabled": bool(data.get("enabled")), "remote": data.get("remote", ""),
-              "last_success": data.get("last_success", ""),
-              "last_error": data.get("last_error", "") or error,
-              "running": JOB_LOCK.locked(), "rclone_installed": bool(shutil.which("rclone")),
-              "managed": str(data.get("remote", "")).startswith("rospos_crypt_")}
-    if with_remotes:
-        result["remotes"] = encrypted_drive_remotes()
-    return result
+    remote = data.get("remote", "")
+    # An older saved disabled selection is not an active Google connection.
+    connected = bool(data.get("enabled") and _managed_remote_valid(remote))
+    return {"enabled": connected,
+            "connected": connected, "remote": remote if connected else "",
+            "reconnect_required": bool(remote and not connected),
+            "last_success": data.get("last_success", "") if connected else "",
+            "last_error": (data.get("last_error", "") or error) if connected else error,
+            "running": JOB_LOCK.locked(), "rclone_installed": bool(shutil.which("rclone"))}
 
 
-def configure(remote, enabled):
-    if not isinstance(remote, str) or not NAME.fullmatch(remote) or type(enabled) is not bool:
-        raise ValueError("Invalid cloud backup settings.")
-    if remote not in encrypted_drive_remotes():
-        raise ValueError("Choose a configured encrypted Google Drive remote.")
-    saved = _read()
-    if saved.get("remote") != remote:
-        saved.pop("last_success", None)
-        saved.pop("last_error", None)
-    saved.update(remote=remote, enabled=enabled)
-    _write(saved)
-    return status(with_remotes=True)
+def activate_google(remote):
+    """Called only after successful Desktop OAuth and creation of a crypt remote."""
+    if not _managed_remote_valid(remote):
+        raise ValueError("Google Drive encryption could not be verified.")
+    _write({"remote": remote, "enabled": True})
+    return status()
 
 
 def disconnect():
     # Local disconnection never deletes Google files or revokes Google grants.
     _write({})
-    return status(with_remotes=True)
+    return status()
 
 
 def due():
     cfg = _read()
-    return bool(cfg.get("enabled") and cfg.get("remote")
+    return bool(cfg.get("enabled") and _managed_remote_valid(cfg.get("remote"))
                 and cfg.get("last_success", "")[:10] != datetime.now().astimezone().date().isoformat())
 
 
@@ -181,19 +174,19 @@ def backup_once(database, archive_dir, lock, retention=30, reserved=False):
     try:
         cfg = _read()
         remote = cfg.get("remote", "")
-        if not cfg.get("enabled") or remote not in encrypted_drive_remotes():
+        if not cfg.get("enabled") or not _managed_remote_valid(remote):
             return False
         name = "rospos-" + datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(4) + ".zip"
         with tempfile.TemporaryDirectory(prefix="rospos-cloud-") as folder:
             path = os.path.join(folder, name)
             _bundle(path, database, archive_dir, lock)
             # rclone crypt encrypts file contents and filenames before uploading.
-            _rclone_for(remote, "copyto", path, remote + ":" + name, timeout=300)
+            _managed_rclone("copyto", path, remote + ":" + name, timeout=300)
         try:
-            old = sorted(x for x in _rclone_for(remote, "lsf", remote + ":", "--files-only", timeout=45).splitlines()
+            old = sorted(x for x in _managed_rclone("lsf", remote + ":", "--files-only", timeout=45).splitlines()
                          if BUNDLE.fullmatch(x))
             for stale in old[:-max(7, min(365, int(retention)))]:
-                _rclone_for(remote, "deletefile", remote + ":" + stale, timeout=45)
+                _managed_rclone("deletefile", remote + ":" + stale, timeout=45)
         except (RuntimeError, ValueError, subprocess.TimeoutExpired):
             pass
         saved = _read()

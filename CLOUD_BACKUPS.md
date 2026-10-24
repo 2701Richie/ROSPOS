@@ -30,16 +30,20 @@ configuration is needed for the new sign-in flow.
    Google Drive file access. The browser returns to a local ROSPOS confirmation.
    The connection is automatically enabled, and the first encrypted backup is
    queued immediately. Backups continue daily in the background.
-7. Return to ROSPOS Settings and press **Refresh accounts** to see the connected
-   destination and check the last-success or error status.
+7. Return to ROSPOS Settings and use **Refresh backup status** to check
+   your most recent successful upload or any errors.
+
+Older manually selected cloud destinations are no longer supported. If upgrading
+from that version, reconnect through Google sign-in. ROSPOS does not remove
+previously uploaded backups or saved authentication files.
 
 **Browser restriction:** Google Desktop OAuth redirects to 127.0.0.1 on the
 device running the browser. Connect from a browser *on the POS server computer*,
 not from a phone or another LAN computer. After connection, the ordinary ROSPOS
 Settings interface can be viewed from the store LAN by an Owner.
 
-**Security:** Owner password is required to begin sign-in, change cloud
-settings, back up manually or disconnect. Authorization uses short-lived,
+**Security:** Owner password is required to begin sign-in, back up manually,
+or disconnect. Authorization uses short-lived,
 single-use state and PKCE. Google authorization codes are exchanged on the POS
 computer; access/refresh tokens never enter the browser. Only the recovery
 password/salt are deliberately displayed once to the Owner, to allow recovery
@@ -52,14 +56,6 @@ Selected remote and backup status are stored at
 location of both files. Each sign-in creates a separate encrypted Google Drive
 folder to avoid mixing installations' backup data. Cloning ROSPOS does not
 inherit credentials, pharmacy data, or encryption keys.
-
-## Existing rclone setup (advanced, optional)
-
-Existing configured rclone Google Drive + crypt remotes are still supported:
-select a remote in the dropdown, enable backups, enter the Owner password, and
-save. It must use standard filename encryption and enabled directory encryption
-on top of a Google Drive remote. This compatibility mode does not require the
-new browser sign-in. Never point a cloud backup at an unencrypted Drive remote.
 
 ## Backup behavior and recovery
 

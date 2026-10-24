@@ -1086,12 +1086,9 @@ tbody tr:hover{background:var(--ui-hover)}
 .table-pagination span{font-size:.9rem;color:var(--mu);font-variant-numeric:tabular-nums}
 
 /* Cloud backup settings: keep the optional integration compact on tablets. */
-.settings-cloud-toggle {display:flex!important;align-items:center;gap:10px;line-height:1.5}
-.settings-cloud-toggle input[type="checkbox"] {width:18px!important;height:18px;min-width:18px;margin:0}
 #cloudBackupCard .acts {display:flex;flex-wrap:wrap;gap:8px}
 #cloudBackupCard details {margin-top:16px;line-height:1.65}
 #cloudBackupCard details summary {cursor:pointer;font-weight:600}
-#cloudBackupCard details ol {padding-left:24px;margin:8px 0}
 #cloudBackupCard #cloudStatus {margin:6px 0 14px}
 
 /* Google sign-in setup: focused, accessible, and responsive. */
@@ -1110,3 +1107,8 @@ tbody tr:hover{background:var(--ui-hover)}
 .cloud-recovery-ack{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.5;margin:10px 0}
 .cloud-recovery-ack input{flex:none;min-height:auto;width:18px;height:18px;margin-top:1px}
 #cloudGoogleAuthorize[hidden]{display:none}
+
+/* Keep inactive Google setup and backup controls truly hidden. */
+#cloudConnectBox[hidden],#cloudControls[hidden]{display:none}
+#cloudControls>.mu{font-size:12px;line-height:1.55}
+.cloud-owner-auth{margin:12px 0}

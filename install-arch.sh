@@ -125,5 +125,5 @@ ip -4 -brief address | awk '$1!="lo" && $2=="UP" {split($3,a,"/"); print "      
 echo
 echo "Tip: in your router, reserve that address for this laptop so the number never changes."
 echo "Optional encrypted Google Drive backups: rclone is installed."
-echo "To connect your own Google account, run 'rclone config' as $U (not sudo)."
+echo "To connect Google Drive, open ROSPOS Settings on this computer and choose Connect Google Drive."
 echo "Then choose a crypt remote in Owner Settings. See $APP_DIR/CLOUD_BACKUPS.md for instructions."

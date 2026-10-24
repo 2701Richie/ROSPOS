@@ -23,29 +23,24 @@ async function refreshCloud(){
   const info=await api('/api/cloud-backup');
   const message=$('#cloudMessage');
   if(info.error){message.textContent=info.error;return}
-  const list=$('#cloudRemote'), previous=list.value;
-  list.replaceChildren();
-  const names=info.remotes||[];
-  if(!names.length){
-    const option=document.createElement('option');
-    option.value='';option.textContent='No encrypted Google Drive remotes found';
-    list.append(option);
+  const connected=Boolean(info.connected);
+  if(connected){
+    // Erase the one-time recovery kit from the page after authorization.
+    $('#cloudRecoveryText').textContent='';
+    $('#cloudRecovery').hidden=true;
+    $('#cloudGoogleAuthorize').removeAttribute('href');
+    $('#cloudRecoverySaved').checked=false;
   }
-  for(const name of names){
-    const option=document.createElement('option');
-    option.value=name;option.textContent=name;
-    list.append(option);
-  }
-  list.value=names.includes(info.remote)?info.remote:names.includes(previous)?previous:names[0]||'';
-  $('#cloudEnabled').checked=Boolean(info.enabled);
-  $('#cloudSave').disabled=!names.length;
+  $('#cloudConnectBox').hidden=connected;
+  $('#cloudControls').hidden=!connected;
   $('#cloudConnect').disabled=!info.rclone_installed;
-  $('#cloudNow').disabled=!info.enabled||Boolean(info.running);
-  $('#cloudDisconnect').disabled=!info.remote;
-  const last=info.last_success?' Last backup: '+new Date(info.last_success).toLocaleString()+'.':' No cloud backup completed yet.';
-  const state=info.running?'Backup in progress.':info.enabled?'Automatic cloud backups enabled.':'Automatic cloud backups disabled.';
-  $('#cloudStatus').textContent=state+last+(info.last_error?' '+info.last_error:'');
-  if(!info.rclone_installed)message.textContent='rclone is not installed on this computer. See the setup instructions below.';
+  $('#cloudNow').disabled=!connected||Boolean(info.running);
+  $('#cloudDisconnect').disabled=!connected;
+  const last=info.last_success?' Last successful backup: '+new Date(info.last_success).toLocaleString()+'.':' No successful cloud backup yet.';
+  const state=info.running?'Backup in progress.':connected?'Automatic daily encrypted backups enabled.':'Google Drive is not connected.';
+  const reconnect=info.reconnect_required?' An earlier configuration is no longer supported; reconnect using Google sign-in. Existing cloud files were not deleted.':'';
+  $('#cloudStatus').textContent=state+(connected?last:'')+reconnect+(info.last_error?' '+info.last_error:'');
+  if(!info.rclone_installed)message.textContent='rclone is required but is not installed on the POS computer.';
 }
 async function cloudAction(action){
   const password=$('#cloudPassword').value;
@@ -53,11 +48,10 @@ async function cloudAction(action){
   if(!password){msg.textContent='Enter your Owner password for this action.';$('#cloudPassword').focus();return}
   if(action==='connect'){$('#cloudRecovery').hidden=true;$('#cloudRecoveryText').textContent='';$('#cloudGoogleAuthorize').removeAttribute('href');$('#cloudRecoverySaved').checked=false;$('#cloudGoogleAuthorize').hidden=true}
   const body={action,password};
-  if(action==='configure'){body.remote=$('#cloudRemote').value;body.enabled=$('#cloudEnabled').checked}
   if(action==='connect'){body.client_id=$('#cloudClientId').value.trim();body.client_secret=$('#cloudClientSecret').value.trim()}
   $('#cloudPassword').value='';
   msg.textContent='Working…';
-  for(const id of ['cloudSave','cloudNow','cloudDisconnect','cloudConnect'])$('#'+id).disabled=true;
+  for(const id of ['cloudNow','cloudDisconnect','cloudConnect'])$('#'+id).disabled=true;
   const result=await api('/api/cloud-backup',body);
   msg.textContent=result.error||result.msg||'Cloud backup settings updated.';
   if(action==='connect'&&!result.error&&result.cloud?.authorization_url){
@@ -72,8 +66,7 @@ async function cloudAction(action){
   }
   await refreshCloud();
 }
-$('#cloudRefresh').onclick=refreshCloud;
-$('#cloudSave').onclick=()=>cloudAction('configure');
+$('#cloudCheck').onclick=refreshCloud;
 $('#cloudNow').onclick=()=>cloudAction('backup');
 $('#cloudDisconnect').onclick=()=>cloudAction('disconnect');
 

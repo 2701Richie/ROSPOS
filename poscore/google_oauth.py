@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import re
 import secrets
 import shutil
@@ -144,6 +143,6 @@ def complete(state, code, cloud):
                  "token_type": obj.get("token_type", "Bearer"),
                  "expiry": expiry.isoformat().replace("+00:00", "Z")}
         crypt = _create_remote(cloud, pending, token)
-        return cloud.configure(crypt, True)
+        return cloud.activate_google(crypt)
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
         raise ValueError("Encrypted Google Drive connection could not be saved.") from None

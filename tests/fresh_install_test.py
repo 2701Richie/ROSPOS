@@ -3,7 +3,6 @@
 Never executes the system installers or touches the actual POS database.
 """
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,14 +25,15 @@ for name, package_command in installers.items():
          name + " verifies that rclone can execute")
     R.ok('User=$U' in content and 'UMask=0077' in content,
          name + " maintains unprivileged service and private file permissions")
-    R.ok("rclone config" in content and "CLOUD_BACKUPS.md" in content,
-         name + " gives the owner instructions for optional account authorization")
-    R.ok(not re.search(r"^\s*(?:sudo\s+)?rclone\s+config\b", content, re.M),
-         name + " never automatically configures a Google account")
+    R.ok("Connect Google Drive" in content and "CLOUD_BACKUPS.md" in content,
+         name + " guides owners to built-in Google sign-in")
+    R.ok("rclone config" not in content,
+         name + " contains no legacy manual cloud configuration")
 
 guide = (ROOT / "CLOUD_BACKUPS.md").read_text(encoding="utf-8")
-R.ok(all(x in guide for x in ("Connect Google Drive", "Desktop app", "127.0.0.1", "password", "salt", "Cloning")) and "rclone" in guide.lower(),
-     "setup guide covers browser sign-in, recovery credentials and legacy rclone")
+R.ok(all(x in guide for x in ("Connect Google Drive", "Desktop app", "127.0.0.1", "password", "salt", "Cloning"))
+     and "Existing rclone setup" not in guide,
+     "setup guide documents only managed Google sign-in and recovery")
 R.ok((ROOT / "poscore" / "cloud_backup.py").exists(),
      "cloud backup code is packaged in fresh clones")
 R.done()

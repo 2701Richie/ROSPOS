@@ -21,23 +21,23 @@ with tempfile.TemporaryDirectory(prefix="rospos-cloud-check-") as tmp:
     tool.mkdir()
     fake = tool / "rclone"
     fake.write_text("""#!/usr/bin/env python3
-import json, os, shutil, sys
+import configparser, json, os, shutil, sys
 from pathlib import Path
 args = sys.argv[1:]
-d = Path(os.environ['FAKE_CLOUD'])
-if args == ['config', 'dump']:
-    print(json.dumps({'driveA': {'type': 'drive'},
-        'secure': {'type':'crypt', 'remote':'driveA:ROSPOS', 'password':'obscured',
-                   'filename_encryption':'standard', 'directory_name_encryption':'true'},
-        'plain': {'type':'crypt', 'remote':'driveA:ROSPOS-weak', 'password':'obscured',
-                  'filename_encryption':'off'},
-        'notcloud': {'type':'crypt', 'remote':'local:folder', 'password':'obscured'}}))
-elif args[0] == 'copyto':
-    shutil.copyfile(args[1], d / args[2].split(':', 1)[1])
-elif args[0] == 'lsf':
-    print('\\n'.join(x.name for x in d.iterdir() if x.is_file()))
-elif args[0] == 'deletefile':
-    (d / args[1].split(':', 1)[1]).unlink()
+root = Path(os.environ['FAKE_CLOUD'])
+if len(args) < 3 or args[0] != '--config':
+    sys.exit(1)  # Managed backups must never read the default rclone config.
+cfg = configparser.RawConfigParser(interpolation=None)
+cfg.read(args[1])
+op = args[2:]
+if op == ['config', 'dump']:
+    print(json.dumps({section: dict(cfg.items(section)) for section in cfg.sections()}))
+elif op[0] == 'copyto':
+    shutil.copyfile(op[1], root / op[2].split(':', 1)[1])
+elif op[0] == 'lsf':
+    print('\\n'.join(x.name for x in root.iterdir() if x.is_file()))
+elif op[0] == 'deletefile':
+    (root / op[1].split(':', 1)[1]).unlink()
 else:
     sys.exit(1)
 """, encoding="utf-8")
@@ -45,20 +45,54 @@ else:
     os.environ["FAKE_CLOUD"] = tmp
     os.environ["POS_CLOUD_CONFIG"] = str(root / "config" / "cloud.json")
     os.environ["PATH"] = str(tool) + os.pathsep + os.environ["PATH"]
-    R.ok(cb.encrypted_drive_remotes() == ["secure"], "only encrypted Google Drive crypt remotes are offered")
-    for invalid in ("driveA", "plain", "notcloud", "../oops", "secure;rm", ""):
+    private = root / "config"
+    private.mkdir(mode=0o700)
+    remote = "rospos_crypt_0123456789ab"
+    drive = "rospos_drive_0123456789ab"
+    cfgpath = private / "managed-rclone.conf"
+    cfgpath.write_text("""[%s]
+type = drive
+scope = drive.file
+token = {"refresh_token":"fake"}
+
+[%s]
+type = crypt
+remote = %s:ROSPOS-Encrypted/0123456789abcdef
+password = fake-secret
+password2 = fake-salt
+filename_encryption = standard
+directory_name_encryption = true
+""" % (drive, remote, drive), encoding="utf-8")
+    cfgpath.chmod(0o600)
+    R.ok(cb._managed_remote_valid(remote), "managed Google Drive crypt destination validated")
+    trusted = cfgpath.read_text(encoding="utf-8")
+    for unsafe, reason in (
+        (trusted.replace("filename_encryption = standard", "filename_encryption = off"),
+         "plaintext filenames prohibited"),
+        (trusted.replace("directory_name_encryption = true", "directory_name_encryption = false"),
+         "unencrypted directories prohibited"),
+        (trusted.replace("password2 = fake-salt", "password2 = "),
+         "missing secondary encryption secret prohibited"),
+        (trusted.replace("type = drive", "type = local"),
+         "non-Google backend prohibited"),
+        (trusted.replace("ROSPOS-Encrypted/0123456789abcdef", "unmanaged-folder"),
+         "non-ROSPOS backup destination prohibited"),
+    ):
+        cfgpath.write_text(unsafe, encoding="utf-8")
+        R.ok(not cb._managed_remote_valid(remote), reason)
+    cfgpath.write_text(trusted, encoding="utf-8")
+    R.ok(cb._managed_remote_valid(remote), "secure remote remains usable after rejecting unsafe settings")
+    for invalid in ("secure", "plain", "driveA", "../oops", "secure;rm", ""):
         try:
-            cb.configure(invalid, True)
+            cb.activate_google(invalid)
         except ValueError:
-            pass
+            R.ok(True, "unmanaged destination rejected: " + invalid)
         else:
-            R.ok(False, "unsafe remote rejected: " + invalid)
-            continue
-        R.ok(not cb.status()["enabled"], "unsafe remote cannot enable upload: " + invalid)
-    cb.configure("secure", True)
-    R.ok(cb.status()["enabled"] and cb.status()["remote"] == "secure", "owner may select an encrypted remote")
+            R.ok(False, "unmanaged destination accepted: " + invalid)
+    cb.activate_google(remote)
+    R.ok(cb.status()["enabled"] and cb.status()["remote"] == remote, "Google consent enables managed encrypted backup")
     R.ok(os.stat(cb.config_path()).st_mode & 0o077 == 0, "cloud settings have private file permissions")
-    R.ok("password" not in json.dumps(cb.status(with_remotes=True)), "credential never returned in status")
+    R.ok("password" not in json.dumps(cb.status()), "credential never returned in status")
 
     db = sqlite3.connect(str(root / "test.db"))
     db.execute("create table demo(name text)")

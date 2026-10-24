@@ -126,7 +126,7 @@
 <div class="card settings-card" id="cloudBackupCard">
   <div class="settings-card-heading"><span class="settings-icon">☁</span><div><h3>Encrypted Google Drive backups</h3><p class="mu">Optional. Use your own Google account; sales stay available offline.</p></div></div>
   <p id="cloudStatus" class="mu" role="status" aria-live="polite">Checking cloud backup settings…</p>
-  <div class="cloud-connect-box">
+  <div class="cloud-connect-box" id="cloudConnectBox">
     <strong>Connect Google Drive</strong>
     <p class="mu">On the ROSPOS computer, open this page at <code>http://127.0.0.1</code> (add the server port if needed). You only have to connect once per installation.</p>
     <details><summary>One-time Google app setup</summary><p>Create a Google Cloud OAuth client of type <strong>Desktop app</strong> and enable the Google Drive API. Copy the client ID and secret below. Google requires this because rclone's shared OAuth client is retiring. <a href="https://rclone.org/drive/#making-your-own-client-id" target="_blank" rel="noopener noreferrer">Google app setup instructions</a>.</p></details>
@@ -144,26 +144,18 @@
       <a id="cloudGoogleAuthorize" target="_blank" rel="noopener noreferrer" hidden>Continue to Google sign-in ↗</a></div>
     </div>
   </div>
-  <div class="form settings-form">
-    <label>Connected encrypted remote<select id="cloudRemote" aria-label="Encrypted Google Drive backup account"><option value="">No account selected</option></select></label>
-    <label class="settings-cloud-toggle"><input type="checkbox" id="cloudEnabled"> Automatically back up to this account daily</label>
+  <div class="form settings-form cloud-owner-auth">
     <label>Current Owner password<input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Required for cloud backup actions"></label>
   </div>
-  <div class="acts">
-    <button type="button" class="pri" id="cloudSave">Save cloud settings</button>
-    <button type="button" id="cloudNow">Back up now</button>
-    <button type="button" id="cloudDisconnect">Disconnect</button>
-    <button type="button" id="cloudRefresh">Refresh accounts</button>
+  <div id="cloudControls" hidden>
+    <p class="mu">Encrypted Google Drive backups are scheduled automatically every day. Sales continue to work offline.</p>
+    <div class="acts">
+      <button type="button" class="pri" id="cloudNow">Back Up Now</button>
+      <button type="button" id="cloudDisconnect">Disconnect Google Drive</button>
+    </div>
   </div>
+  <div class="acts"><button type="button" id="cloudCheck">Refresh backup status</button></div>
   <p id="cloudMessage" class="mu" role="status" aria-live="polite"></p>
-  <details class="settings-notice"><summary>Connect your own Google account (one-time setup on the ROSPOS computer)</summary>
-    <p>Advanced setup for owners who already use rclone. The Connect Google Drive button above does not require manual rclone configuration.</p>
-    <ol><li>Install rclone on the ROSPOS computer (Arch: <code>sudo pacman -S rclone</code>).</li>
-    <li>Open a terminal as the same user that runs ROSPOS and enter <code>rclone config</code>. Create a Google Drive remote, authorize the Google account in your browser, and choose your account.</li>
-    <li>In <code>rclone config</code>, create a second remote of type <strong>crypt</strong> whose storage points to the Google Drive remote (for example <code>mydrive:ROSPOS-Backups</code>). Choose a strong crypt password, standard filename encryption, and encrypted directory names. Store its recovery password safely outside this computer.</li>
-    <li>Return here, refresh accounts, choose the encrypted remote, and enable automatic backups. Google sign-in occurs in rclone, not inside ROSPOS.</li></ol>
-    <p>Never upload an unencrypted database to Drive. Disconnecting here does not revoke access in Google; to revoke access, also remove its rclone remote or revoke the app from your Google Account.</p>
-  </details>
 </div>
 <div class="card settings-save-card"><div><strong>Save changes</strong><p class="mu">Confirm with your current password to apply settings.</p></div><div class="settings-save-controls"><label class="settings-password">Current password<input id="sp" type="password" autocomplete="current-password" placeholder="Required to save"></label><div class="acts"><button class="pri" id="ss">Save settings</button><button id="sr" type="button">Undo changes</button></div></div><div id="sm" class="err settings-message" role="status" aria-live="polite"></div></div>
 </div>

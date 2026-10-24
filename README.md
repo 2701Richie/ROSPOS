@@ -25,7 +25,7 @@ In this folder run once:
 sudo bash install-lubuntu.sh
 ```
 
-It installs Python, Avahi, and **rclone** for optional encrypted Google Drive backups, starts the POS at every boot (and restarts it if it stops), gives it the name `http://pos.local` on port 80 (no `:8000`), opens the firewall if one is running, and adds an **Open ROSPOS** icon for the person using the laptop. Installing rclone does **not** connect a Google account; Owners can use **Settings → Cloud Backup → Connect Google Drive** without running rclone config. Google requires a one-time Desktop OAuth app client ID and secret; follow [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md). Undo with `sudo bash install-lubuntu.sh --uninstall`; data is kept.
+It installs Python, Avahi, and **rclone** for optional encrypted Google Drive backups, starts the POS at every boot (and restarts it if it stops), gives it the name `http://pos.local` on port 80 (no `:8000`), opens the firewall if one is running, and adds an **Open ROSPOS** icon for the person using the laptop. Installing rclone does **not** connect a Google account; Owners use **Settings → Cloud Backup → Connect Google Drive**; there is no manual remote selection. Google requires a one-time Desktop OAuth app client ID and secret; follow [CLOUD_BACKUPS.md](CLOUD_BACKUPS.md). Undo with `sudo bash install-lubuntu.sh --uninstall`; data is kept.
 
 - **Permanent address:** `pos.local` never changes. Most iPads, Windows, Mac, Linux and recent Android devices can open it. If one can't, use the laptop's IP address, which the script prints. To keep that number from changing, reserve it for the laptop in the router (look for DHCP reservation or address reservation).
 - Keep the folder path free of spaces.

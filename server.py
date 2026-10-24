@@ -705,7 +705,7 @@ class H(BaseHTTPRequestHandler):
                 if user.get("role") != "owner":
                     return self.send(403, {"error": "Only the owner can manage cloud backups."})
             # rclone is an external process; don't hold the POS sales lock while reading its settings.
-            return self.send(200, cloud_backup.status(with_remotes=True))
+            return self.send(200, cloud_backup.status())
         if page == "/api/backup":
             with LOCK:
                 u, _ = session_user(self)
@@ -793,18 +793,15 @@ class H(BaseHTTPRequestHandler):
                         result = cloud_backup.begin_google_signin(b.get("client_id"),
                                                                   b.get("client_secret"), PORT)
                         msg = "Save both recovery secrets before signing in with Google."
-                    elif action == "configure":
-                        result = cloud_backup.configure(b.get("remote"), b.get("enabled"))
-                        msg = "Cloud backup settings saved."
                     elif action == "disconnect":
                         result = cloud_backup.disconnect()
                         msg = "Cloud account disconnected from ROSPOS."
                     elif action == "backup":
                         if not cloud_backup.status()["enabled"]:
-                            raise ValueError("Connect an encrypted Google Drive remote first.")
+                            raise ValueError("Connect Google Drive first.")
                         if not cloud_backup.launch(db, ARCHIVE_DIR, LOCK, settings()["backup_days"]):
                             raise ValueError("A cloud backup is already running.")
-                        result = cloud_backup.status(with_remotes=True)
+                        result = cloud_backup.status()
                         msg = "Cloud backup started."
                     else:
                         raise ValueError("Unknown cloud backup action.")
