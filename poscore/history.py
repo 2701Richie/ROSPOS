@@ -41,6 +41,42 @@ def read_receipt_day(day, archive_dir, live_sales, include_cost=False, hot_sales
                            if isinstance(line, dict)]) for s in result], unavailable
 
 
+def sold_quantities_last_30_days(archive_dir, live_sales, today):
+    """Count completed sale lines across archives and hot state (30 calendar days).
+
+    Archival copies are de-duplicated by receipt number, and hot state wins.
+    Incomplete archives are reported rather than misrepresented as zero sales.
+    """
+    days = [day_shift(today, -delta) for delta in range(30)]
+    hot_by_day = {day: [] for day in days}
+    for sale in live_sales:
+        if isinstance(sale, dict) and sale.get("d") in hot_by_day:
+            hot_by_day[sale["d"]].append(sale)
+
+    quantities = {}
+    unavailable = []
+    for day in days:
+        sales, unreadable = read_receipt_day(
+            day, archive_dir, live_sales, include_cost=True, hot_sales=hot_by_day[day]
+        )
+        if unreadable:
+            unavailable.append(day)
+        for sale in sales:
+            if sale.get("v"):
+                continue
+            for line in sale.get("l", []):
+                if not isinstance(line, dict):
+                    continue
+                quantity = line.get("q")
+                if (not isinstance(quantity, (int, float)) or
+                        isinstance(quantity, bool) or not math.isfinite(quantity) or quantity <= 0):
+                    continue
+                key = str(line["id"]) if line.get("id") is not None else str(line.get("n", ""))
+                if key:
+                    quantities[key] = quantities.get(key, 0) + quantity
+    return {"today": today, "quantities": quantities, "unavailable": unavailable}
+
+
 def build_report_sales_history(selected, archive_dir, live_sales, today):
     """Read the 90-day report and a selected day without loading archives into live state."""
     start = day_shift(today, -89)

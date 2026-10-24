@@ -9,7 +9,8 @@ from urllib.parse import parse_qs, urlsplit
 from poscore.values import (MAX_NUM, R, now, day_shift, valid_day, valid_expiry, max_sale_no,
                             good_num, _no_constant, _finite_float)
 from poscore.archive_store import merge_day_archive
-from poscore.history import no_cost, read_receipt_day, build_report_sales_history
+from poscore.history import (no_cost, read_receipt_day, build_report_sales_history,
+                             sold_quantities_last_30_days)
 from poscore.audit_queries import AuditQueryError, query_audit_events
 from poscore.audit_events import (json_value as _json_value,
                                   legacy_event_key as _legacy_event_key,
@@ -1263,6 +1264,13 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlsplit(self.path)
         page = parsed.path
+        if page == "/api/reorder-sales":
+            with LOCK:
+                user, _ = session_user(self)
+                if not user:
+                    return self.send(401, {"error": "Please sign in."})
+                # Reorder is accessible to staff; never expose cost or sale details.
+                return self.send(200, sold_quantities_last_30_days(ARCHIVE_DIR, S["s"], now()[0]))
         if page in ("/api/report-sales", "/api/receipt-date"):
             with LOCK:
                 u, _ = session_user(self)

@@ -1,10 +1,45 @@
 const REORDER_ROWS_PER_PAGE=80;
 let reorderPage=0;
+let reorderSalesSummary=null, reorderSalesSession=0;
+
+async function refreshReorderHistory() {
+  const request=++reorderSalesSession;
+  const session=typeof sessionRevision==='undefined'?null:sessionRevision;
+  $('#reorderHistoryStatus').textContent='Checking archived sales…';
+  const result=await api('/api/reorder-sales');
+  if(request!==reorderSalesSession || tab!=='rdr' || !ME ||
+      (session!==null && session!==sessionRevision)) return;
+  if(result.error) {
+    reorderSalesSummary=null;
+    $('#reorderHistoryStatus').textContent='30-day sales history unavailable; recent sales only.';
+  } else {
+    reorderSalesSummary=result;
+    $('#reorderHistoryStatus').textContent=result.unavailable.length
+      ? 'Some archived days could not be read; 30-day quantities may be incomplete.'
+      : 'Sold quantities include the last 30 calendar days, including archived transactions.';
+  }
+  drawRdr();
+}
+
 // reorder.js: Reorder list with supplier price comparison and supplier-specific order sheets.
 let rQ={},rX={};
 function margin(){try{const v=parseFloat(localStorage.getItem('pos-margin'));return isNaN(v)?25:v}catch(e){return 25}}
 function sug(p){return Math.max(1,2*p.m-p.s)}
-function sold30(){const d=new Date(T+'T00:00:00');d.setDate(d.getDate()-30);const from=d.toLocaleDateString('en-CA'),m={};(S.s||[]).forEach(s=>{if(s.v||s.d<from)return;(s.l||[]).forEach(l=>{const k=l.id||l.n;m[k]=(m[k]||0)+l.q})});return m}
+function sold30(){
+  if(reorderSalesSummary && reorderSalesSummary.today===T)
+    return reorderSalesSummary.quantities;
+  const d=new Date(T+'T00:00:00');
+  d.setDate(d.getDate()-29);
+  const from=d.toLocaleDateString('en-CA'),m={};
+  for(const s of S.s||[]){
+    if(s.v || s.d<from || s.d>T)continue;
+    for(const l of s.l||[]){
+      const k=l.id??l.n;
+      m[k]=(m[k]||0)+Number(l.q||0);
+    }
+  }
+  return m;
+}
 // Retain the latest recorded unit cost for each product/supplier pair.
 function supplierPriceMap() {
   const latest = new Map();
