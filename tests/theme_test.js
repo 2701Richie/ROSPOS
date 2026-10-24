@@ -8,12 +8,11 @@ function make(store,throwing){
  vm.createContext(ctx);vm.runInContext(src,ctx);return{ctx,el,root:ctx.document.documentElement};
 }
 let st={},a=make(st);
-ok(a.root.dataset.theme===undefined&&a.el('#tb').textContent==='◐','starts on Automatic');
-a.el('#tb').onclick();ok(st['pos-theme']==='light'&&a.root.dataset.theme==='light'&&a.el('#tb').textContent==='☀','tap 1: Light is forced and saved');
-a.el('#tb').onclick();ok(st['pos-theme']==='dark'&&a.root.dataset.theme==='dark'&&a.el('#tb').textContent==='☾','tap 2: Dark is forced and saved');
-ok(/Dark/.test(a.el('#tb').attrs['aria-label']),'accessible label names the current theme');
-a.el('#tb').onclick();ok(!('pos-theme' in st)&&a.root.dataset.theme===undefined,'tap 3: back to Automatic, saved choice cleared');
-let b=make({'pos-theme':'dark'});ok(b.root.dataset.theme==='dark'&&b.el('#tb').textContent==='☾','saved Dark is applied on load');
+ok(a.root.dataset.theme===undefined&&a.el('#themeChoice').value==='auto','starts on Automatic');
+a.el('#themeChoice').value='light';a.el('#themeChoice').onchange();ok(st['pos-theme']==='light'&&a.root.dataset.theme==='light','Light is forced and saved');
+a.el('#themeChoice').value='dark';a.el('#themeChoice').onchange();ok(st['pos-theme']==='dark'&&a.root.dataset.theme==='dark','Dark is forced and saved');
+a.el('#themeChoice').value='auto';a.el('#themeChoice').onchange();ok(!('pos-theme' in st)&&a.root.dataset.theme===undefined,'Automatic clears saved choice');
+let b=make({'pos-theme':'dark'});ok(b.root.dataset.theme==='dark'&&b.el('#themeChoice').value==='dark','saved Dark is applied on load');
 let c=make({'pos-theme':'garbage'});ok(c.root.dataset.theme===undefined,'unknown saved value is ignored');
-let d=make({},true);d.el('#tb').onclick();ok(d.root.dataset.theme==='light','still works when browser storage is blocked');
+let d=make({},true);d.el('#themeChoice').value='light';d.el('#themeChoice').onchange();ok(d.root.dataset.theme==='light','still works when browser storage is blocked');
 process.exit(bad?1:0);

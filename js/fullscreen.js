@@ -3,6 +3,6 @@
 const req=el.requestFullscreen||el.webkitRequestFullscreen,ex=document.exitFullscreen||document.webkitExitFullscreen;
 if(!req||!ex){b.style.display='none';return}
 const on=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
-const lab=()=>{const t=on()?'Exit full screen':'Full screen';b.textContent=t;b.title=t};
+const lab=()=>{const t=on()?'Exit full screen':'Full screen';b.title=t;b.setAttribute('aria-label',t);const label=b.querySelector('.sidebar-label');if(label)label.textContent=t};
 b.onclick=()=>{try{const r=on()?ex.call(document):req.call(el);if(r&&r.catch)r.catch(()=>{})}catch(e){}};
 ['fullscreenchange','webkitfullscreenchange'].forEach(n=>document.addEventListener(n,lab));lab()})();

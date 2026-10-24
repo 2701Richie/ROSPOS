@@ -55,6 +55,41 @@ check("save_everything", t_save, 2500, extra=" with %d products, %d sales, %d lo
 ms, r = timed(lambda: store.call("/api/state", role="manager"))
 check("state_fetch_manager", ms, 2000, extra=", %.1f MB" % (len(r.data) / 1e6))
 R.metric("state_size_manager", round(len(r.data) / 1e6, 2), "MB")
+
+# Conditional state requests must not transfer unchanged data, and may never
+# reuse a manager/owner response for staff.
+etag = '"' + hashlib.sha256(r.data).hexdigest() + '"'
+unchanged = store.call("/api/state", role="manager", headers={"If-None-Match": etag})
+R.ok(unchanged.code == 304 and unchanged.data == b"",
+     "conditional state: unchanged manager snapshot returns empty HTTP 304")
+different_role = store.call("/api/state", role="staff", headers={"If-None-Match": etag})
+R.ok(different_role.code == 200 and not cost_leaks(different_role.obj["state"]),
+     "conditional state: staff cannot reuse a manager snapshot or receive cost data")
+
+# Exercise the production HTTP send path, not only the fake transport used by tests.
+import gzip, io
+class ResponseCapture(srv.H):
+    def __init__(self):
+        self.headers = type("Headers", (), {"get": lambda _, key, default="": "gzip" if key == "Accept-Encoding" else default})()
+        self.wfile = io.BytesIO()
+        self.response_headers = {}
+        self.status = None
+    def send_response(self, code):
+        self.status = code
+    def send_header(self, name, value):
+        self.response_headers[name] = value
+    def end_headers(self):
+        pass
+
+capture = ResponseCapture()
+capture.send(200, body=r.data)
+compressed_data = capture.wfile.getvalue()
+R.ok(capture.status == 200 and capture.response_headers.get("Content-Encoding") == "gzip"
+     and gzip.decompress(compressed_data) == r.data
+     and len(compressed_data) < len(r.data) * 0.5,
+     "gzip state: lossless compression over 50% for large store")
+R.metric("state_size_gzip", round(len(compressed_data) / 1e6, 2), "MB")
+
 ms, r = timed(lambda: store.call("/api/state", role="staff"))
 check("state_fetch_staff", ms, 2000, extra=", %.1f MB" % (len(r.data) / 1e6))
 pid = srv.S["p"][5]["id"]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ROSPOS server. Python standard library only, nothing to install.
 Run:  python3 server.py   then open http://<laptop-ip>:8000 on any tablet or PC."""
-import getpass, hashlib, hmac, json, math, os, re, secrets, sqlite3, sys, threading, time, traceback
+import getpass, gzip, hashlib, hmac, json, math, os, re, secrets, sqlite3, sys, threading, time, traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -1405,8 +1405,20 @@ class H(BaseHTTPRequestHandler):
 
     def send(self, code, obj=None, body=None, ctype="application/json", cookie=None, disposition=None):
         data = body if body is not None else json.dumps(obj).encode()
+        # Browsers automatically decompress gzip; only compress sizeable JSON responses.
+        accepts_gzip = "gzip" in self.headers.get("Accept-Encoding", "").lower()
+        compressed = code == 200 and disposition is None and "json" in ctype and (
+            len(data) >= 1024 and accepts_gzip
+        )
+        if compressed:
+            data = gzip.compress(data, compresslevel=5)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if compressed:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
+        if getattr(self, "_state_etag", None):
+            self.send_header("ETag", self._state_etag)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -1538,7 +1550,14 @@ class H(BaseHTTPRequestHandler):
                     return self.send(200, {"setup": not U, "me": acct(u) if u else None})
                 if not u:
                     return self.send(401, {"error": "Please sign in."})
-                return self.send(200, {"state": pub(u), "me": acct(u)})
+                # Hash the permission-filtered representation, not the raw database.
+                # A conditional request saves the entire response when nothing changed.
+                payload = {"state": pub(u), "me": acct(u)}
+                raw = json.dumps(payload).encode()
+                self._state_etag = '"' + hashlib.sha256(raw).hexdigest() + '"'
+                if self.headers.get("If-None-Match", "") == self._state_etag:
+                    return self.send(304, body=b"")
+                return self.send(200, body=raw)
         self.send(404, {"error": "Not found."})
 
     def do_POST(self):

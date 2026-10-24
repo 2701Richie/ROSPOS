@@ -708,3 +708,112 @@ body:not(.pos-ready) .pos-sidebar,body:not(.pos-ready) .sidebar-restore{visibili
 }
 
 .pos-sidebar .sidebar-divider[hidden]{display:none!important}
+
+/* Sidebar utilities and role-specific settings/account panels */
+@media(min-width:701px){
+ .pos-sidebar .sidebar-utilities{margin-top:auto;padding-top:12px;border-top:1px solid var(--bd)}
+ .pos-sidebar .sidebar-utilities button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 12px;white-space:nowrap;overflow:hidden;border:0;border-radius:10px;background:transparent;color:var(--mu);font-size:19px}
+ .pos-sidebar .sidebar-utilities button:hover{background:var(--bg);color:var(--ink)}
+ .pos-sidebar .sidebar-utilities .sidebar-label{font-size:13px}
+}
+@media(max-width:700px){.pos-sidebar .sidebar-utilities{display:flex;flex:0 0 auto}.pos-sidebar .sidebar-utilities button{min-height:44px;padding:0 10px}.pos-sidebar .sidebar-utilities .sidebar-label{display:none}}
+#account-admin[hidden],#settings-admin[hidden]{display:none!important}
+.account-self{margin-bottom:16px}
+.settings-theme-card{max-width:550px}
+.settings-theme-card select{display:block;width:100%;max-width:320px;margin-top:8px}
+
+
+/* Unified ROSPOS design refresh — compact, readable, and responsive */
+:root{--ui-line:color-mix(in srgb,var(--bd) 80%,transparent);--ui-hover:color-mix(in srgb,var(--sf) 93%,var(--ac))}
+body{line-height:1.48;text-rendering:optimizeLegibility}
+main{width:100%;min-width:0;padding:clamp(14px,1.7vw,24px);padding-bottom:44px}
+main>section:not([hidden]){min-width:0}
+header{min-height:64px;padding:10px clamp(14px,2vw,26px)}
+header #who{font-size:13px;font-weight:650}
+header #so{min-height:40px;font-size:13px;font-weight:700}
+h1,h2,h3{line-height:1.22;letter-spacing:-.025em}
+h2{font-size:clamp(20px,2vw,26px)}
+h3{font-size:clamp(16px,1.5vw,19px)}
+p{line-height:1.55}
+.card{border:1px solid var(--ui-line);border-radius:15px;box-shadow:var(--shadow);animation:none}
+button{font-weight:600;border-radius:10px;transition:background-color .14s,border-color .14s,box-shadow .14s}
+button:hover,button:active{transform:none}
+button:active{filter:brightness(.97)}
+button.pri:hover{background:color-mix(in srgb,var(--ac) 88%,var(--ink))}
+button:disabled{opacity:.52;cursor:not-allowed;box-shadow:none}
+input,select,textarea{max-width:100%;border-color:var(--ui-line);border-radius:10px;font-size:14px}
+input::placeholder,textarea::placeholder{color:var(--mu);opacity:.85}
+label{font-weight:650;line-height:1.5}
+label input,label select,label textarea{font-weight:450}
+table{width:100%;border-collapse:separate;border-spacing:0}
+th{background:color-mix(in srgb,var(--bg) 66%,var(--sf));font-size:11px;letter-spacing:.065em}
+th,td{padding:11px 12px;border-bottom:1px solid var(--ui-line);vertical-align:middle}
+tbody tr:last-child td{border-bottom-color:transparent}
+tbody tr:hover{background:var(--ui-hover)}
+.wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border-radius:10px}
+.form{gap:14px}
+.stats{gap:14px}
+.stats .card{padding:clamp(16px,2vw,22px)}
+.acts{gap:9px;align-items:center}
+.seg{gap:6px;padding:4px;border:1px solid var(--ui-line);border-radius:12px;background:var(--sf)}
+.seg button{min-height:40px;border-color:transparent;background:transparent}
+.seg button.on{background:var(--ac);color:var(--ai)}
+#grid{gap:10px;grid-template-columns:repeat(auto-fill,minmax(165px,1fr))}
+#grid .tile{border-radius:12px;min-height:112px;padding:13px;gap:12px;transition:border-color .14s,background-color .14s,box-shadow .14s}
+#grid .tile:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+.sell-catalog{min-width:0}
+.sell-checkout{border-radius:18px}
+#pb{border-radius:18px}
+#pm,#md{backdrop-filter:blur(3px)}
+.account-self{padding:20px}
+.account-self p{margin:4px 0 16px}
+.settings-theme-card{padding:20px}
+.settings-theme-card h2{margin-bottom:6px}
+.settings-theme-card p{margin:0 0 14px}
+.pos-sidebar .sidebar-links button,.pos-sidebar .sidebar-utilities button{transition:background-color .14s,color .14s}
+.pos-sidebar .sidebar-links button.on{font-weight:750}
+.pos-sidebar .sidebar-links button:focus-visible,.pos-sidebar .sidebar-utilities button:focus-visible{outline:2px solid var(--ac);outline-offset:-2px}
+@media(min-width:901px) and (max-width:1190px){
+ .sell-workspace{grid-template-columns:minmax(0,1fr) minmax(300px,34%)}
+ #grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr))}
+}
+@media(max-width:700px){
+ header{min-height:56px;padding:9px 12px}
+ header #who{font-size:12px}
+ main{padding:12px 11px 32px}
+ .card{border-radius:13px}
+ .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+ .stats .card{padding:12px}
+ .form{grid-template-columns:minmax(0,1fr)}
+ .acts{flex-wrap:wrap}
+ .acts button{max-width:100%}
+ .settings-theme-card{max-width:none}
+ #grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ #grid .tile{padding:11px;min-height:104px}
+}
+@media(max-width:390px){
+ .stats{grid-template-columns:1fr}
+ header{gap:6px}
+ header #who{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+@media(prefers-reduced-motion:reduce){
+ button,.card,.tile{transition:none!important;animation:none!important}
+}
+@media print{
+ main{padding:0!important}
+ .pos-sidebar,.sidebar-restore{display:none!important}
+}
+
+
+/* Sell catalog: progressively reveal results without laying out every product at once. */
+.sell-grid-more{
+  grid-column:1/-1;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+  align-items:center;
+  gap:12px;
+  padding:16px;
+  color:var(--mu);
+}
+.sell-grid-more button{min-height:40px;padding:8px 18px}

@@ -3,17 +3,168 @@ let rQ={},rX={};
 function margin(){try{const v=parseFloat(localStorage.getItem('pos-margin'));return isNaN(v)?25:v}catch(e){return 25}}
 function sug(p){return Math.max(1,2*p.m-p.s)}
 function sold30(){const d=new Date(T+'T00:00:00');d.setDate(d.getDate()-30);const from=d.toLocaleDateString('en-CA'),m={};(S.s||[]).forEach(s=>{if(s.v||s.d<from)return;(s.l||[]).forEach(l=>{const k=l.id||l.n;m[k]=(m[k]||0)+l.q})});return m}
-function supplierPriceMap(){const map=new Map();(S.purchases||[]).forEach(x=>{if(x.supplier_id==null||x.product_id==null||!Number.isFinite(Number(x.unit_cost)))return;const k=String(x.product_id)+'|'+String(x.supplier_id),old=map.get(k);if(!old||String(x.date||'')>String(old.date||'')||(x.date===old.date&&String(x.created_at||'')>String(old.created_at||'')))map.set(k,{supplier_id:String(x.supplier_id),supplier_name:x.supplier_name||((S.suppliers||[]).find(s=>String(s.id)===String(x.supplier_id))||{}).name||'Unknown supplier',cost:Number(x.unit_cost),date:x.date||''})});return map}
+// Retain the latest recorded unit cost for each product/supplier pair.
+function supplierPriceMap() {
+  const latest = new Map();
+  const suppliers = S.suppliers || [];
+
+  for (const purchase of S.purchases || []) {
+    if (purchase.supplier_id == null || purchase.product_id == null) continue;
+    if (!Number.isFinite(Number(purchase.unit_cost))) continue;
+
+    const key = String(purchase.product_id) + '|' + String(purchase.supplier_id);
+    const previous = latest.get(key);
+    const newerDate = !previous || String(purchase.date || '') > String(previous.date || '');
+    const newerTime = previous &&
+      purchase.date === previous.date &&
+      String(purchase.created_at || '') > String(previous.created_at || '');
+    if (!newerDate && !newerTime) continue;
+
+    const supplier = suppliers.find(row => String(row.id) === String(purchase.supplier_id));
+    latest.set(key, {
+      supplier_id: String(purchase.supplier_id),
+      supplier_name: purchase.supplier_name || supplier?.name || 'Unknown supplier',
+      cost: Number(purchase.unit_cost),
+      date: purchase.date || '',
+    });
+  }
+  return latest;
+}
 function bestPrice(p,map){return [...map.entries()].filter(([k])=>k.startsWith(String(p.id)+'|')).map(([,v])=>v).sort((a,b)=>a.cost-b.cost||a.supplier_name.localeCompare(b.supplier_name))[0]||null}
 function fillReorderSuppliers(){const el=$('#rSupplier');if(!el)return;const current=el.value;el.innerHTML='<option value="">All suppliers · all products</option>'+(S.suppliers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');if((S.suppliers||[]).some(s=>String(s.id)===current))el.value=current}
-function lists(){const mg=margin()/100,sold=sold30(),by=(a,b)=>a.r-b.r||a.p.n.localeCompare(b.p.n),all=(S.p||[]).filter(p=>p.m>0||p.s===0).map(p=>({p,r:p.m>0?p.s/p.m:-1,sold:(sold[p.id]||0)+(sold[p.n]||0)}));return{now:all.filter(x=>x.p.s<=x.p.m).sort(by),low:all.filter(x=>x.p.s>x.p.m&&x.p.s<=x.p.m*(1+mg)).sort(by),none:(S.p||[]).filter(p=>!(p.m>0)&&p.s>0).length}}
+// Classify only products eligible for reorder; use the same categories in every view.
+function lists() {
+  const threshold = 1 + margin() / 100;
+  const sales = sold30();
+  const candidates = (S.p || [])
+    .filter(product => product.m > 0 || product.s === 0)
+    .map(product => ({
+      p: product,
+      r: product.m > 0 ? product.s / product.m : -1,
+      sold: (sales[product.id] || 0) + (sales[product.n] || 0),
+    }));
+  const byUrgency = (a, b) => a.r - b.r || a.p.n.localeCompare(b.p.n);
+
+  return {
+    now: candidates.filter(row => row.p.s <= row.p.m).sort(byUrgency),
+    low: candidates
+      .filter(row => row.p.s > row.p.m && row.p.s <= row.p.m * threshold)
+      .sort(byUrgency),
+    none: (S.p || []).filter(product => !(product.m > 0) && product.s > 0).length,
+  };
+}
 function badge(){const b=$('#rdrb');if(!b)return;const n=lists().now.length;b.title=n?'Reorder ('+n+' need attention)':'Reorder';b.setAttribute?.('aria-label',b.title);const label=b.querySelector?.('.sidebar-label');if(label)label.textContent=n?'Reorder ('+n+')':'Reorder';else b.textContent=n?'Reorder ('+n+')':'Reorder'}
 function defaultReorderIncluded(p){const mg=margin()/100;return p.s<=p.m||(p.m>0&&p.s>p.m&&p.s<=p.m*(1+mg))}
 function reorderRows(){const l=lists(),sid=$('#rSupplier')?.value||'',prices=supplierPriceMap(),supplier=(S.suppliers||[]).find(s=>String(s.id)===sid);const rows=[...l.now,...l.low].map(x=>({...x,price:sid?(prices.get(String(x.p.id)+'|'+sid)||null):bestPrice(x.p,prices)}));return{...l,rows,sid,supplierName:supplier?.name||''}}
 function visibleReorderRows(rows){const q=String($('#rSearch')?.value||'').trim().toLocaleLowerCase();if(!q)return rows;const l=reorderRows();if(!l.sid)return rows.filter(x=>String(x.p.n||'').toLocaleLowerCase().includes(q));const sold=sold30(),prices=supplierPriceMap(),sid=l.sid;return(S.p||[]).filter(p=>String(p.n||'').toLocaleLowerCase().includes(q)).map(p=>({p,r:p.m>0?p.s/p.m:-1,sold:(sold[p.id]||0)+(sold[p.n]||0),price:prices.get(String(p.id)+'|'+sid)||null,searchResult:true})).sort((a,b)=>a.p.n.localeCompare(b.p.n))}
 function rrow(x){const p=x.p,isNow=p.s<=p.m,isLow=p.m>0&&p.s>p.m&&p.s<=p.m*(1+margin()/100),q=rQ[p.id]??sug(p),sid=$('#rSupplier')?.value||'',inc=sid?!!rX[p.id]:(rX[p.id]===undefined?defaultReorderIncluded(p):!!rX[p.id]),price=x.price,supplierName=sid?((S.suppliers||[]).find(s=>String(s.id)===sid)||{name:'Selected supplier'}).name:(price?price.supplier_name:'No price on record'),selector=sid?(x.searchResult?'<button type="button" class="radd" data-id="'+esc(p.id)+'">'+(inc?'Remove':'Add to order')+'</button>':'<input type="checkbox" class="ri" data-id="'+esc(p.id)+'"'+(inc?' checked':'')+' aria-label="Include '+esc(p.n)+' in the order">'):'<input type="checkbox" class="ri" data-id="'+esc(p.id)+'"'+(inc?' checked':'')+' aria-label="Include '+esc(p.n)+' in the order">'; return'<tr><td class="reorder-check-col">'+selector+'</td><td class="reorder-product-name">'+esc(p.n)+'</td><td>'+(p.s<=0?'<span class="tag b">Out of stock</span>':isNow?'<span class="tag b">Reorder now</span>':isLow?'<span class="tag w">Getting low</span>':'<span class="tag">Stock okay</span>')+'</td><td class="reorder-num">'+p.s+'</td><td class="reorder-num">'+p.m+'</td><td class="reorder-num">'+x.sold+'</td><td><input class="rn" data-id="'+esc(p.id)+'" inputmode="numeric" value="'+q+'" aria-label="Order quantity for '+esc(p.n)+'"></td><td>'+esc(supplierName)+'</td><td class="reorder-num">'+(price?M(price.cost):'—')+'</td></tr>'}
-function drawRdr(){fillReorderSuppliers();const l=reorderRows(),all=visibleReorderRows(l.rows),q=String($('#rSearch')?.value||'').trim(),selected=new Set(picked().map(x=>String((S.p||[]).find(p=>p.n===x.n)?.id))),rows=(l.sid?(S.p||[]).filter(p=>!!rX[p.id]):all.map(x=>x.p)).map(p=>{const x=all.find(x=>String(x.p.id)===String(p.id))||{p,r:p.m>0?p.s/p.m:-1,sold:(sold30()[p.id]||0)+(sold30()[p.n]||0)},prices=supplierPriceMap();return{...x,price:l.sid?(prices.get(String(p.id)+'|'+l.sid)||null):bestPrice(p,prices)}}).sort((a,b)=>a.p.n.localeCompare(b.p.n));const results=$('#rsearchResults');if(results){results.hidden=!q||!l.sid;results.innerHTML=q&&l.sid?(all.length?'<div class="reorder-search-results-head">Matching products — press Add to order</div>'+all.map(x=>'<div class="reorder-search-result"><span><strong>'+esc(x.p.n)+'</strong><small>Stock: '+x.p.s+' · Min: '+x.p.m+'</small></span><button type="button" class="radd" data-id="'+esc(x.p.id)+'">'+(rX[x.p.id]?'Remove from order':'Add to order')+'</button></div>').join(''):'<p class="mu">No matching products.</p>'):''}$('#reorderRows').innerHTML=rows.length?rows.map(rrow).join(''):'<tr><td colspan="'+(l.sid?9:7)+'" class="mu reorder-empty">'+(l.sid?'No items added yet. Search above and press Add to order.':(q?'No matching restock items.':'No items currently need restocking.'))+'</td></tr>';$('#rmg').value=margin();const visibleNow=rows.filter(x=>x.p.s<=x.p.m).length,visibleLow=rows.filter(x=>x.p.m>0&&x.p.s>x.p.m&&x.p.s<=x.p.m*(1+margin()/100)).length;$('#rstats').innerHTML='<div class="reorder-stat urgent"><span>Reorder now</span><strong>'+visibleNow+'</strong></div><div class="reorder-stat"><span>Getting low</span><strong>'+visibleLow+'</strong></div><div class="reorder-stat"><span>Selected items</span><strong id="rselectedCount">'+picked().length+'</strong></div>';$('#rrowcount').textContent=rows.length+(l.sid?' selected item':' restock item')+(rows.length===1?'':'s');updateReorderSelection();$('#rnone').textContent=l.none?l.none+(l.none>1?' products have':' product has')+' no reorder level set and are excluded. Set a minimum on the Products tab.':''}
-function picked(){const l=reorderRows(),prices=supplierPriceMap(),out=[];(S.p||[]).forEach(p=>{const q=parseInt(rQ[p.id]??sug(p)),inc=l.sid?!!rX[p.id]:(rX[p.id]===undefined?defaultReorderIncluded(p):!!rX[p.id]),price=l.sid?prices.get(String(p.id)+'|'+l.sid):bestPrice(p,prices);if(inc&&q>0)out.push({n:p.n,q,supplier:l.sid?(l.supplierName||'Selected supplier'):(price?.supplier_name||''),cost:price?.cost??'',supplier_id:l.sid||price?.supplier_id||''})});return out.sort((a,b)=>a.n.localeCompare(b.n))}
+function reorderDisplayRows(list, matches) {
+  const prices = supplierPriceMap();
+  const sales = sold30();
+  const byId = new Map(matches.map(row => [String(row.p.id), row]));
+  const products = list.sid
+    ? (S.p || []).filter(product => !!rX[product.id])
+    : matches.map(row => row.p);
+
+  return products.map(product => {
+    const row = byId.get(String(product.id)) || {
+      p: product,
+      r: product.m > 0 ? product.s / product.m : -1,
+      sold: (sales[product.id] || 0) + (sales[product.n] || 0),
+    };
+    return {
+      ...row,
+      price: list.sid
+        ? prices.get(String(product.id) + '|' + list.sid) || null
+        : bestPrice(product, prices),
+    };
+  }).sort((a, b) => a.p.n.localeCompare(b.p.n));
+}
+
+function renderReorderSearchResults(matches, query, supplierId) {
+  const panel = $('#rsearchResults');
+  if (!panel) return;
+  panel.hidden = !query || !supplierId;
+  if (!query || !supplierId) {
+    panel.innerHTML = '';
+    return;
+  }
+  panel.innerHTML = matches.length
+    ? '<div class="reorder-search-results-head">Matching products — press Add to order</div>' +
+      matches.map(row => `<div class="reorder-search-result">
+        <span><strong>${esc(row.p.n)}</strong>
+          <small>Stock: ${row.p.s} · Min: ${row.p.m}</small></span>
+        <button type="button" class="radd" data-id="${esc(row.p.id)}">
+          ${rX[row.p.id] ? 'Remove from order' : 'Add to order'}
+        </button></div>`).join('')
+    : '<p class="mu">No matching products.</p>';
+}
+
+function drawRdr() {
+  fillReorderSuppliers();
+  const list = reorderRows();
+  const matches = visibleReorderRows(list.rows);
+  const query = String($('#rSearch')?.value || '').trim();
+  const rows = reorderDisplayRows(list, matches);
+
+  renderReorderSearchResults(matches, query, list.sid);
+  $('#reorderRows').innerHTML = rows.length
+    ? rows.map(rrow).join('')
+    : `<tr><td colspan="9" class="mu reorder-empty">${
+        list.sid ? 'No items added yet. Search above and press Add to order.'
+        : query ? 'No matching restock items.' : 'No items currently need restocking.'
+      }</td></tr>`;
+
+  $('#rmg').value = margin();
+  const threshold = 1 + margin() / 100;
+  const urgent = rows.filter(row => row.p.s <= row.p.m).length;
+  const low = rows.filter(row =>
+    row.p.m > 0 && row.p.s > row.p.m && row.p.s <= row.p.m * threshold
+  ).length;
+  $('#rstats').innerHTML = `<div class="reorder-stat urgent">
+    <span>Reorder now</span><strong>${urgent}</strong></div>
+    <div class="reorder-stat"><span>Getting low</span><strong>${low}</strong></div>
+    <div class="reorder-stat"><span>Selected items</span>
+      <strong id="rselectedCount">${picked().length}</strong></div>`;
+  $('#rrowcount').textContent = rows.length +
+    (list.sid ? ' selected item' : ' restock item') +
+    (rows.length === 1 ? '' : 's');
+  updateReorderSelection();
+  $('#rnone').textContent = list.none
+    ? list.none + (list.none > 1 ? ' products have' : ' product has') +
+      ' no reorder level set and are excluded. Set a minimum on the Products tab.'
+    : '';
+}
+// Generate the printable/exportable order from explicit selections and quantities.
+function picked() {
+  const { sid, supplierName } = reorderRows();
+  const prices = supplierPriceMap();
+  const selected = [];
+
+  for (const product of S.p || []) {
+    const quantity = parseInt(rQ[product.id] ?? sug(product));
+    const included = sid
+      ? !!rX[product.id]
+      : rX[product.id] === undefined
+        ? defaultReorderIncluded(product)
+        : !!rX[product.id];
+    if (!included || quantity <= 0) continue;
+
+    const price = sid
+      ? prices.get(String(product.id) + '|' + sid)
+      : bestPrice(product, prices);
+
+    selected.push({
+      n: product.n,
+      q: quantity,
+      supplier: sid ? supplierName || 'Selected supplier' : price?.supplier_name || '',
+      cost: price?.cost ?? '',
+      supplier_id: sid || price?.supplier_id || '',
+    });
+  }
+
+  return selected.sort((a, b) => a.n.localeCompare(b.n));
+}
 $('#rSupplier').onchange=()=>drawRdr();
 $('#rSearch').oninput=()=>drawRdr();
 $('#v-rdr').onclick=e=>{const b=e.target.closest('.radd');if(!b)return;const id=b.dataset.id;rX[id]=!rX[id];drawRdr()};

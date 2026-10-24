@@ -6,14 +6,57 @@ function purchaseDateToday(){return (S&&S.today)||T||ds(0)}
 function purchaseToast(message,error=false){const el=$('#purchaseToast');if(!el)return;el.textContent=message;el.classList.toggle('is-error',error);el.hidden=false;clearTimeout(purchaseToastTimer);purchaseToastTimer=setTimeout(()=>{el.hidden=true},3800)}
 function setPurchaseView(view){['list','recent','compare'].forEach(v=>{const panel=$('#purchaseView'+v[0].toUpperCase()+v.slice(1));if(panel)panel.hidden=v!==view;const b=document.querySelector('[data-purchase-view="'+v+'"]');if(b){b.classList.toggle('on',v===view);b.setAttribute('aria-selected',v===view?'true':'false')}});if(view==='recent')drawRecentPurchases();if(view==='compare')drawSupplierComparison()}
 document.querySelectorAll('[data-purchase-view]').forEach(b=>b.addEventListener('click',()=>setPurchaseView(b.dataset.purchaseView)));
-function drawPurchases(){
- if(!$('#purchaseRows'))return;
- const q=$('#purchaseQ').value.trim().toLocaleLowerCase(),from=$('#purchaseFrom').value,to=$('#purchaseTo').value;
- const all=purchaseRows().filter(x=>(!q||String(x.product_name||'').toLocaleLowerCase().includes(q)||String(x.supplier_name||'').toLocaleLowerCase().includes(q))&&(!from||x.date>=from)&&(!to||x.date<=to));
- all.sort((a,b)=>{let av=a[purchaseSort.key],bv=b[purchaseSort.key];if(purchaseSort.key==='quantity'||purchaseSort.key==='unit_cost'||purchaseSort.key==='total'){av=Number(av)||0;bv=Number(bv)||0;return (av-bv)*purchaseSort.dir}return String(av||'').localeCompare(String(bv||''),'en',{numeric:true,sensitivity:'base'})*purchaseSort.dir});
- $('#purchaseCount').textContent=all.length.toLocaleString('en-PH')+' purchase'+(all.length===1?'':'s');
- $('#purchaseEmpty').hidden=all.length>0||purchaseRows().length>0;
- $('#purchaseRows').innerHTML=all.map(x=>`<tr><td data-label="Date">${esc(x.date||'—')}</td><td data-label="Product"><strong>${esc(x.product_name||productName(x.product_id))}</strong></td><td data-label="Supplier">${esc(x.supplier_name||'—')}</td><td data-label="Quantity">${Number(x.quantity)||0}</td><td data-label="Unit cost">${M(Number(x.unit_cost)||0)}</td><td data-label="Total"><strong>${M(Number(x.total)||0)}</strong></td><td data-label="Expiry date">${esc(x.expiry_date||'Not recorded')}</td><td data-label="Actions"><div class="purchase-row-actions"><button type="button" data-purchase-edit="${esc(x.id)}">Edit</button><button type="button" class="purchase-delete" data-purchase-delete="${esc(x.id)}">Delete</button></div></td></tr>`).join('');
+// Keep purchase filtering and sorting independent from HTML generation.
+function filteredPurchases() {
+  const query = $('#purchaseQ').value.trim().toLocaleLowerCase();
+  const from = $('#purchaseFrom').value;
+  const to = $('#purchaseTo').value;
+  const numeric = ['quantity', 'unit_cost', 'total'];
+
+  return purchaseRows()
+    .filter(row =>
+      (!query ||
+        String(row.product_name || '').toLocaleLowerCase().includes(query) ||
+        String(row.supplier_name || '').toLocaleLowerCase().includes(query)) &&
+      (!from || row.date >= from) &&
+      (!to || row.date <= to)
+    )
+    .sort((a, b) => {
+      const key = purchaseSort.key;
+      if (numeric.includes(key)) {
+        return ((Number(a[key]) || 0) - (Number(b[key]) || 0)) * purchaseSort.dir;
+      }
+      return String(a[key] || '').localeCompare(String(b[key] || ''), 'en', {
+        numeric: true,
+        sensitivity: 'base',
+      }) * purchaseSort.dir;
+    });
+}
+
+function purchaseRowHTML(row) {
+  return `<tr>
+    <td data-label="Date">${esc(row.date || '—')}</td>
+    <td data-label="Product"><strong>${esc(row.product_name || productName(row.product_id))}</strong></td>
+    <td data-label="Supplier">${esc(row.supplier_name || '—')}</td>
+    <td data-label="Quantity">${Number(row.quantity) || 0}</td>
+    <td data-label="Unit cost">${M(Number(row.unit_cost) || 0)}</td>
+    <td data-label="Total"><strong>${M(Number(row.total) || 0)}</strong></td>
+    <td data-label="Expiry date">${esc(row.expiry_date || 'Not recorded')}</td>
+    <td data-label="Actions"><div class="purchase-row-actions">
+      <button type="button" data-purchase-edit="${esc(row.id)}">Edit</button>
+      <button type="button" class="purchase-delete" data-purchase-delete="${esc(row.id)}">Delete</button>
+    </div></td>
+  </tr>`;
+}
+
+function drawPurchases() {
+  if (!$('#purchaseRows')) return;
+
+  const rows = filteredPurchases();
+  $('#purchaseCount').textContent =
+    rows.length.toLocaleString('en-PH') + ' purchase' + (rows.length === 1 ? '' : 's');
+  $('#purchaseEmpty').hidden = rows.length > 0 || purchaseRows().length > 0;
+  $('#purchaseRows').innerHTML = rows.map(purchaseRowHTML).join('');
 }
 function productName(id){const p=(S.p||[]).find(x=>String(x.id)===String(id));return p?p.n:'Deleted product'}
 ['purchaseQ','purchaseFrom','purchaseTo'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener(id==='purchaseQ'?'input':'change',drawPurchases)});
@@ -32,15 +75,158 @@ $('#purchaseDate').onchange=()=>{$('#purchaseExpiryDate').min=$('#purchaseDate')
 $('#purchaseNewSupplierToggle').onclick=()=>{$('#purchaseNewSupplierBox').hidden=!$('#purchaseNewSupplierBox').hidden;if(!$('#purchaseNewSupplierBox').hidden)$('#purchaseNewSupplierName').focus()};
 $('#purchaseNewSupplierSave').onclick=async()=>{const name=$('#purchaseNewSupplierName').value.trim(),m=$('#purchaseNewSupplierError');m.textContent='';if(!name){m.textContent='Enter a supplier name.';return}const btn=$('#purchaseNewSupplierSave');btn.disabled=true;const r=await api('/api/supplier',{name});btn.disabled=false;if(r.error){m.textContent=r.error;return}fillSupplierSelect(r.supplier.id);$('#purchaseNewSupplierName').value='';$('#purchaseNewSupplierBox').hidden=true;purchaseToast(r.msg||'Supplier added.')};
 $('#purchaseNoteToggle').onclick=()=>{const wrap=$('#purchaseNoteWrap'),open=wrap.hidden;wrap.hidden=!open;$('#purchaseNoteToggle').textContent=open?'− Hide note':'＋ Add note (optional)';if(open)$('#purchaseNotes').focus()};
-function openPurchaseDialog(row=null){purchaseEditing=row;purchaseSelectedProduct=row?(S.p||[]).find(p=>String(p.id)===String(row.product_id))||null:null;$('#purchaseDialogTitle').textContent=row?'Edit Purchase':'Add Purchase';$('#purchaseFormError').textContent='';['purchaseProductError','purchaseSupplierError','purchaseQtyError','purchaseCostError','purchaseExpiryError'].forEach(id=>$('#'+id).textContent='');$('#purchaseForm').reset();$('#purchaseDate').value=row?.date||purchaseDateToday();$('#purchaseExpiryDate').value=row?.expiry_date||'';$('#purchaseExpiryDate').min=$('#purchaseDate').value||purchaseDateToday();$('#purchaseQty').value=row?.quantity||1;$('#purchaseUnitCost').value=row?row.unit_cost:'';$('#purchaseNotes').value=row?.notes||'';$('#purchaseNoteWrap').hidden=!row?.notes;$('#purchaseNoteToggle').textContent=row?.notes?'− Hide note':'＋ Add note (optional)';fillSupplierSelect(row?.supplier_id||'');$('#purchaseProductQ').hidden=false;$('#purchaseProductQ').value='';$('#purchaseProductSelected').hidden=true;$('#purchaseProductQ').disabled=!!row;$('#purchaseProductOptions').hidden=true;$('#purchaseProductHelp').textContent=(S.p||[]).length?'Search by product name or ID. Stock will update when saved.':'No products yet. Add a product in Products before recording a purchase.';$('#purchaseSave').disabled=!(S.p||[]).length;$('#purchaseSave').textContent=row?'Save changes':'Save Purchase';if(row&&purchaseSelectedProduct){$('#purchaseProductQ').value=purchaseSelectedProduct.n;showSelectedProduct('purchaseProductSelected',purchaseSelectedProduct,()=>{});$('#purchaseProductSelected button').hidden=true;$('#purchaseProductQ').hidden=true}$('#purchaseNewSupplierError').textContent='';$('#purchaseNewSupplierBox').hidden=true;updatePurchaseTotal();const d=$('#purchaseDialog');if(typeof d.showModal==='function')d.showModal();else openPm($('#purchaseDialog').innerHTML);if(!row)$('#purchaseProductQ').focus()}
+function openPurchaseDialog(row = null) {
+  purchaseEditing = row;
+  purchaseSelectedProduct = row
+    ? (S.p || []).find(product => String(product.id) === String(row.product_id)) || null
+    : null;
+
+  $('#purchaseDialogTitle').textContent = row ? 'Edit Purchase' : 'Add Purchase';
+  $('#purchaseFormError').textContent = '';
+  for (const id of ['purchaseProductError', 'purchaseSupplierError', 'purchaseQtyError',
+                    'purchaseCostError', 'purchaseExpiryError']) {
+    $('#' + id).textContent = '';
+  }
+
+  $('#purchaseForm').reset();
+  $('#purchaseDate').value = row?.date || purchaseDateToday();
+  $('#purchaseExpiryDate').value = row?.expiry_date || '';
+  $('#purchaseExpiryDate').min = $('#purchaseDate').value || purchaseDateToday();
+  $('#purchaseQty').value = row?.quantity || 1;
+  $('#purchaseUnitCost').value = row ? row.unit_cost : '';
+  $('#purchaseNotes').value = row?.notes || '';
+  $('#purchaseNoteWrap').hidden = !row?.notes;
+  $('#purchaseNoteToggle').textContent = row?.notes ? '− Hide note' : '＋ Add note (optional)';
+  fillSupplierSelect(row?.supplier_id || '');
+
+  const productInput = $('#purchaseProductQ');
+  productInput.hidden = false;
+  productInput.value = '';
+  productInput.disabled = !!row;
+  $('#purchaseProductSelected').hidden = true;
+  $('#purchaseProductOptions').hidden = true;
+  $('#purchaseProductHelp').textContent = (S.p || []).length
+    ? 'Search by product name or ID. Stock will update when saved.'
+    : 'No products yet. Add a product in Products before recording a purchase.';
+
+  // An existing purchase with a deleted product cannot be safely edited.
+  const canSave = row ? !!purchaseSelectedProduct : !!(S.p || []).length;
+  $('#purchaseSave').disabled = !canSave;
+  $('#purchaseSave').textContent = row ? 'Save changes' : 'Save Purchase';
+  if (row && purchaseSelectedProduct) {
+    productInput.value = purchaseSelectedProduct.n;
+    showSelectedProduct('purchaseProductSelected', purchaseSelectedProduct, () => {});
+    $('#purchaseProductSelected button').hidden = true;
+    productInput.hidden = true;
+  } else if (row) {
+    $('#purchaseProductError').textContent =
+      'This product no longer exists. The purchase cannot be edited.';
+  }
+
+  $('#purchaseNewSupplierError').textContent = '';
+  $('#purchaseNewSupplierBox').hidden = true;
+  updatePurchaseTotal();
+  const dialog = $('#purchaseDialog');
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else openPm(dialog.innerHTML);
+  if (!row) productInput.focus();
+}
 function closePurchaseDialog(){const d=$('#purchaseDialog');if(d.open)d.close();else $('#pm').hidden=true}
 $('#purchaseDialogClose').onclick=closePurchaseDialog;$('#purchaseCancel').onclick=closePurchaseDialog;
-$('#purchaseForm').onsubmit=async e=>{e.preventDefault();const errors={purchaseProductError:'',purchaseSupplierError:'',purchaseQtyError:'',purchaseCostError:'',purchaseExpiryError:'',purchaseFormError:''};const qv=$('#purchaseQty').value.trim(),cv=$('#purchaseUnitCost').value.trim(),qty=Number(qv),cost=Number(cv),supplier=$('#purchaseSupplier').value,date=$('#purchaseDate').value,expiry_date=$('#purchaseExpiryDate').value;let bad=false;if(!purchaseSelectedProduct){errors.purchaseProductError='Choose a product.';bad=true}if(!supplier){errors.purchaseSupplierError='Choose a supplier.';bad=true}if(!/^\d+$/.test(qv)||!Number.isSafeInteger(qty)||qty<1||qty>100000000){errors.purchaseQtyError='Enter a positive whole number.';bad=true}if(cv===''||!Number.isFinite(cost)||cost<0||cost>100000000){errors.purchaseCostError='Enter a valid unit cost.';bad=true}if(!date){errors.purchaseFormError='Choose a purchase date.';bad=true}if(!expiry_date||expiry_date<=date){errors.purchaseExpiryError='Expiration date must be after the purchase date.';bad=true}Object.entries(errors).forEach(([id,msg])=>$('#'+id).textContent=msg);if(bad)return;const btn=$('#purchaseSave');btn.disabled=true;btn.textContent='Saving…';const payload={action:purchaseEditing?'edit':'create',id:purchaseEditing?.id,product_id:purchaseSelectedProduct.id,supplier_id:supplier,quantity:qty,unit_cost:cost,date,expiry_date,notes:$('#purchaseNotes').value.trim()};const r=await api('/api/purchase',payload);btn.disabled=false;btn.textContent=purchaseEditing?'Save changes':'Save Purchase';if(r.error){$('#purchaseFormError').textContent=r.error;return}const isEdit=!!purchaseEditing;closePurchaseDialog();purchaseEditing=null;drawPurchases();drawRdr();drawGrid();if(typeof drawRep==='function')drawRep();purchaseToast(r.msg|| (isEdit?'Purchase updated.':'Purchase added.'));if(!isEdit&&r.reorder_removed){purchaseToast('Purchase added · product quantity met the suggested reorder quantity. Reorder list updated.')}drawRecentPurchases();drawSupplierComparison()};
+function validatePurchaseForm() {
+  const quantityText = $('#purchaseQty').value.trim();
+  const costText = $('#purchaseUnitCost').value.trim();
+  const quantity = Number(quantityText);
+  const unitCost = Number(costText);
+  const supplierId = $('#purchaseSupplier').value;
+  const date = $('#purchaseDate').value;
+  const expiryDate = $('#purchaseExpiryDate').value;
+
+  const errors = {
+    purchaseProductError: purchaseSelectedProduct ? '' : 'Choose a product.',
+    purchaseSupplierError: supplierId ? '' : 'Choose a supplier.',
+    purchaseQtyError: /^\d+$/.test(quantityText) &&
+      Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100000000
+      ? '' : 'Enter a positive whole number.',
+    purchaseCostError: costText !== '' && Number.isFinite(unitCost) &&
+      unitCost >= 0 && unitCost <= 100000000
+      ? '' : 'Enter a valid unit cost.',
+    purchaseExpiryError: expiryDate && expiryDate > date
+      ? '' : 'Expiration date must be after the purchase date.',
+    purchaseFormError: date ? '' : 'Choose a purchase date.',
+  };
+  for (const [id, message] of Object.entries(errors)) $('#' + id).textContent = message;
+  if (Object.values(errors).some(Boolean)) return null;
+
+  return {
+    action: purchaseEditing ? 'edit' : 'create',
+    id: purchaseEditing?.id,
+    product_id: purchaseSelectedProduct.id,
+    supplier_id: supplierId,
+    quantity,
+    unit_cost: unitCost,
+    date,
+    expiry_date: expiryDate,
+    notes: $('#purchaseNotes').value.trim(),
+  };
+}
+
+function refreshPurchaseViews() {
+  drawPurchases();
+  drawRdr();
+  drawGrid();
+  if (typeof drawRep === 'function') drawRep();
+  drawRecentPurchases();
+  drawSupplierComparison();
+}
+
+$('#purchaseForm').onsubmit = async event => {
+  event.preventDefault();
+  const payload = validatePurchaseForm();
+  if (!payload) return;
+
+  const button = $('#purchaseSave');
+  button.disabled = true;
+  button.textContent = 'Saving…';
+  let result;
+  try {
+    result = await api('/api/purchase', payload);
+  } catch (error) {
+    result = { error: 'Cannot save purchase. Please try again.' };
+  } finally {
+    button.disabled = false;
+    button.textContent = purchaseEditing ? 'Save changes' : 'Save Purchase';
+  }
+  if (result.error) {
+    $('#purchaseFormError').textContent = result.error;
+    return;
+  }
+
+  const edited = !!purchaseEditing;
+  closePurchaseDialog();
+  purchaseEditing = null;
+  refreshPurchaseViews();
+  purchaseToast(result.reorder_removed && !edited
+    ? 'Purchase added · product quantity met the suggested reorder quantity. Reorder list updated.'
+    : result.msg || (edited ? 'Purchase updated.' : 'Purchase added.'));
+};
 $('#purchaseRows').onclick=async e=>{const edit=e.target.closest('[data-purchase-edit]'),del=e.target.closest('[data-purchase-delete]');if(edit){const row=purchaseRows().find(x=>x.id===edit.dataset.purchaseEdit);if(row)openPurchaseDialog(row);return}if(del){const row=purchaseRows().find(x=>x.id===del.dataset.purchaseDelete);if(!row)return;if(!confirm(`Delete purchase for ${row.product_name} (${row.quantity} units)? This will reverse the received stock only if that quantity is still available.`))return;const r=await api('/api/purchase',{action:'delete',id:row.id});if(r.error){purchaseToast(r.error,true);return}drawPurchases();drawRdr();drawGrid();purchaseToast(r.msg||'Purchase deleted.');drawRecentPurchases();drawSupplierComparison()}};
-function bindHistoryPicker(inputId,optionsId,selectedId,contentId,onPick){bindProductPicker(inputId,optionsId,p=>{showSelectedProduct(selectedId,p,()=>{ $('#'+inputId).value='';$('#'+contentId).innerHTML='<p class="mu">Select a product to load its records.</p>';$('#'+inputId).hidden=false});$('#'+inputId).hidden=true;onPick(p)})}
+function bindHistoryPicker(inputId, optionsId, selectedId, contentId, onPick, onClear) {
+  bindProductPicker(inputId, optionsId, product => {
+    showSelectedProduct(selectedId, product, () => {
+      onClear();
+      $('#' + inputId).value = '';
+      $('#' + contentId).innerHTML =
+        '<p class="mu">Select a product to load its records.</p>';
+      $('#' + inputId).hidden = false;
+    });
+    $('#' + inputId).hidden = true;
+    onPick(product);
+  });
+}
 let recentProduct=null,compareProduct=null;
-bindHistoryPicker('recentProductQ','recentProductOptions','recentProductSelected','recentPurchasesContent',p=>{recentProduct=p;drawRecentPurchases()});
-bindHistoryPicker('compareProductQ','compareProductOptions','compareProductSelected','supplierComparisonContent',p=>{compareProduct=p;drawSupplierComparison()});
+bindHistoryPicker('recentProductQ','recentProductOptions','recentProductSelected','recentPurchasesContent',p=>{recentProduct=p;drawRecentPurchases()},()=>{recentProduct=null});
+bindHistoryPicker('compareProductQ','compareProductOptions','compareProductSelected','supplierComparisonContent',p=>{compareProduct=p;drawSupplierComparison()},()=>{compareProduct=null});
 function drawRecentPurchases(){const el=$('#recentPurchasesContent');if(!el)return;if(!recentProduct){el.innerHTML='<p class="mu">Select a product to load its purchase history.</p>';return}const rows=purchaseRows().filter(x=>String(x.product_id)===String(recentProduct.id)).sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.created_at||'').localeCompare(String(a.created_at||''))).slice(0,20);el.innerHTML=rows.length?`<div class="purchase-history-title"><strong>${esc(recentProduct.n)}</strong><span class="mu">Latest ${rows.length} records</span></div><div class="wrap purchase-table-wrap"><table class="purchase-table"><thead><tr><th>Date</th><th>Supplier</th><th>Quantity</th><th>Unit cost</th><th>Total</th><th>Expiry date</th></tr></thead><tbody>${rows.map(x=>`<tr><td data-label="Date">${esc(x.date)}</td><td data-label="Supplier">${esc(x.supplier_name)}</td><td data-label="Quantity">${x.quantity}</td><td data-label="Unit cost">${M(x.unit_cost)}</td><td data-label="Total"><strong>${M(x.total)}</strong></td><td data-label="Expiry date">${esc(x.expiry_date||'Not recorded')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="purchase-empty"><h3>No purchases recorded for this product yet</h3><button type="button" class="pri" id="recentAddPurchase">＋ Add Purchase</button></div>';const b=$('#recentAddPurchase');if(b)b.onclick=()=>openPurchaseDialog()}
 function drawSupplierComparison(){const el=$('#supplierComparisonContent');if(!el)return;if(!compareProduct){el.innerHTML='<p class="mu">Select a product to compare supplier prices.</p>';return}const all=purchaseRows().filter(x=>String(x.product_id)===String(compareProduct.id));if(!all.length){el.innerHTML=`<div class="purchase-empty"><h3>No purchases for ${esc(compareProduct.n)}</h3><p class="mu">Record a purchase to start comparing suppliers.</p><button type="button" class="pri" id="compareAddPurchase">＋ Add Purchase</button></div>`;const b=$('#compareAddPurchase');if(b)b.onclick=()=>openPurchaseDialog();return}const map=new Map();all.forEach(x=>{const k=x.supplier_id;if(!map.has(k))map.set(k,{id:k,name:x.supplier_name||'Unknown supplier',rows:[]});map.get(k).rows.push(x)});const ranked=[...map.values()].map(g=>{g.rows.sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.created_at||'').localeCompare(String(a.created_at||'')));const latest=g.rows[0];return{name:g.name,id:g.id,latest:Number(latest.unit_cost)||0,date:latest.date,count:g.rows.length,avg:g.rows.reduce((sum,x)=>sum+(Number(x.unit_cost)||0),0)/g.rows.length}}).sort((a,b)=>a.latest-b.latest||a.name.localeCompare(b.name));const best=ranked[0];el.innerHTML=`<div class="purchase-cheapest"><span class="purchase-cheapest-icon">✓</span><div><small>Cheapest by latest unit cost</small><strong>${esc(best.name)}</strong><span>${M(best.latest)} per unit</span></div></div>${ranked.length===1?'<p class="mu purchase-one-supplier">Only one supplier on record.</p>':''}<div class="wrap purchase-table-wrap"><table class="purchase-table"><thead><tr><th>Rank</th><th>Supplier</th><th>Latest unit cost</th><th>Avg. unit cost</th><th>Last purchase</th><th>Purchases</th></tr></thead><tbody>${ranked.map((x,i)=>`<tr class="${i===0?'purchase-cheapest-row':''}"><td data-label="Rank">${i+1}</td><td data-label="Supplier"><strong>${esc(x.name)}</strong>${i===0?' <span class="purchase-cheapest-badge">Cheapest</span>':''}</td><td data-label="Latest unit cost">${M(x.latest)}</td><td data-label="Avg. unit cost">${M(x.avg)}</td><td data-label="Last purchase">${esc(x.date)}</td><td data-label="Purchases">${x.count}</td></tr>`).join('')}</tbody></table></div>`}
 // Refresh derived views whenever the authenticated state is loaded.

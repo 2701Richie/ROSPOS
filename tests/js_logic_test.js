@@ -4,7 +4,7 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const root=process.argv[2]||path.join(__dirname,'..');
 let bad=0;const ok=(c,m)=>{console.log((c?'ok   ':'FAIL ')+m);if(!c)bad++};
 function load(file,extra){
- const els={};const el=id=>els[id]||(els[id]={value:'',textContent:'',innerHTML:'',hidden:false,style:{},title:''});
+ const els={};const el=id=>els[id]||(els[id]={value:'',textContent:'',innerHTML:'',hidden:false,style:{},title:'',attrs:{},setAttribute(k,v){this.attrs[k]=v},querySelector(){return this.label||(this.label={textContent:''})}});
  const ctx=Object.assign({$:s=>el(s),document:{querySelector:s=>el(s),querySelectorAll:()=>[]},window:{},localStorage:{getItem:()=>null,setItem(){}},
   S:{p:[],s:[],g:[]},T:'2026-10-19',cart:[],said:'',say(m){ctx.said=m},M:n=>n,R:n=>Math.round(n*100)/100,esc:s=>s,tags:()=>''},extra||{});
  vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'js',file),'utf8'),ctx);return{ctx,el};
@@ -20,7 +20,7 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(names(L.now)==='Alpha,Gamma','reorder: zero stock appears in Reorder now, with or without a reorder level (%s)'.replace('%s',names(L.now)));
  ok(names(L.low)==='','reorder: well-stocked product is not listed');
  ok(L.none===1,'reorder: only products with stock and no reorder level are reported as never appearing (%s)'.replace('%s',L.none));
- run(h,'badge()');ok(h.el('#rdrb').textContent==='Reorder (2)','reorder: tab badge counts zero-stock items');
+ run(h,'badge()');ok(h.el('#rdrb').label.textContent==='Reorder (2)','reorder: tab badge counts zero-stock items');
  ok(names(run(h,'picked()'))==='Alpha,Gamma','reorder: All suppliers selects only products at or below minimum stock by default');
  ok(run(h,'picked()').every(x=>['Alpha','Gamma'].includes(x.n)),'reorder: adequately stocked products are excluded from the default order');
  ok(!/checked/.test(run(h,'rrow({p:S.p[1],sold:0,price:null})')),'reorder: adequately stocked product checkbox starts unchecked');
@@ -60,6 +60,31 @@ const names=a=>Array.from(a).map(x=>x.p?x.p.n:x.n).join(',');
  ok(/ORDER LIST/.test(h.el('#op').innerHTML)&&/Order reference/.test(h.el('#op').innerHTML)&&/Date/.test(h.el('#op').innerHTML),'reorder print: includes the order-list heading, reference and date');
  ok(!/Trusted Supplier/.test(h.el('#op').innerHTML)&&/Banate, Iloilo/.test(h.el('#op').innerHTML)&&/09123456789/.test(h.el('#op').innerHTML),'reorder print: omits supplier name and keeps configured store contact details');
  ok(/Unit cost/.test(h.el('#op').innerHTML)&&/Supplier to complete pricing/.test(h.el('#op').innerHTML)&&!(/₱50\.00/.test(h.el('#op').innerHTML)),'reorder print: leaves cost fields blank for supplier to fill in');
+}
+
+// ---- Sell: progressive rendering prevents huge product-grid updates ----
+{
+ const products=Array.from({length:205},(_,i)=>({
+   id:i+1,n:'Item '+String(i+1).padStart(3,'0'),p:10,s:5,m:1,e:''
+ }));
+ const h=load('sell.js',{S:{p:products,s:[],g:[]}});
+ h.ctx.document.createElement=()=>({className:'',innerHTML:''});
+ h.el('#grid').appendChild=child=>{h.el('#grid').more=child};
+ run(h,'drawGrid()');
+ ok((h.el('#grid').innerHTML.match(/class="tile"/g)||[]).length===80,
+   'sell grid: initial render creates only 80 product tiles');
+ ok(/Showing 80 of 205/.test(h.el('#grid').more.innerHTML),
+   'sell grid: remaining products are available via Show more');
+ run(h,'productGridLimit += PRODUCT_PAGE_SIZE;drawGrid()');
+ ok((h.el('#grid').innerHTML.match(/class="tile"/g)||[]).length===160,
+   'sell grid: next page shows 160 products');
+ h.el('#q').value='Item 205';
+ run(h,'resetProductGrid()');
+ ok((h.el('#grid').innerHTML.match(/class="tile"/g)||[]).length===1 &&
+   /Item 205/.test(h.el('#grid').innerHTML),
+   'sell grid: search still finds products beyond the initial page');
+ ok(run(h,'productGridLimit')===80,
+   'sell grid: changing search resets pagination');
 }
 
 // ---- Sell: type the quantity on a cart line ----
@@ -117,11 +142,11 @@ pending.push((async()=>{
  const doc={documentElement:{requestFullscreen(){calls.push('req');return Promise.reject(new Error('denied'))}},fullscreenElement:null,
   exitFullscreen(){calls.push('exit');return Promise.resolve()},addEventListener(n,f){ls[n]=f}};
  const h=load('fullscreen.js',{document:doc});
- ok(h.el('#fsb').style.display!=='none'&&h.el('#fsb').textContent==='Full screen','fullscreen: button shown with label Full screen');
+ ok(h.el('#fsb').style.display!=='none'&&h.el('#fsb').label.textContent==='Full screen','fullscreen: button shown with label Full screen');
  h.el('#fsb').onclick();ok(calls.join()==='req','fullscreen: tap asks the browser for full screen; a refused request does not throw');
- doc.fullscreenElement={};ls.fullscreenchange();ok(h.el('#fsb').textContent==='Exit full screen','fullscreen: label changes to Exit full screen');
+ doc.fullscreenElement={};ls.fullscreenchange();ok(h.el('#fsb').label.textContent==='Exit full screen','fullscreen: label changes to Exit full screen');
  h.el('#fsb').onclick();ok(calls.join()==='req,exit','fullscreen: tap while full screen exits it');
- doc.fullscreenElement=null;ls.fullscreenchange();ok(h.el('#fsb').textContent==='Full screen','fullscreen: label returns to Full screen');
+ doc.fullscreenElement=null;ls.fullscreenchange();ok(h.el('#fsb').label.textContent==='Full screen','fullscreen: label returns to Full screen');
 }
 
 // ---- Cost: report numbers ----
@@ -237,5 +262,49 @@ pending.push((async()=>{
  const t={id:'',classList:{contains:c=>c==='rn'},value:'abc',dataset:{id:'7'}};h.el('#v-rdr').onchange({target:t});
  ok(run(h,'rQ[7]')===12&&t.value==12,'reorder: a non-numeric entry goes back to the last good quantity');
 }
+
+// ---- Phase 3: background poll skips unchanged catalog/cart and guards overlap ----
+pending.push((async () => {
+ const source=fs.readFileSync(path.join(root,'js','main.js'),'utf8');
+ const p1={id:1,n:'Tablet',p:10,s:8,m:2};
+ const state={S:{p:[{...p1}]},cart:[],ME:{role:'owner'},tab:'sell'};
+ const els={'#pm':{hidden:true},'#md':{hidden:true}};
+ let poll,grids=0,carts=0,loads=0,live=0;
+ let resolveLoad;
+ const context={...state, document:{hidden:false,activeElement:null},
+   $:id=>els[id],boot(){},setInterval(fn){poll=fn},
+   drawGrid(){grids++},drawLines(){carts++},clampCart(){},
+   refreshLive:async()=>{live++},
+   load:async()=>{loads++;return {state:true}}};
+ vm.createContext(context);vm.runInContext(source,context);
+ await poll();
+ ok(grids===1&&carts===1,'poll: first refresh synchronizes catalog and cart');
+ await poll();
+ ok(grids===1&&carts===1,'poll: unchanged state does not rebuild tiles or cart');
+ const previousLoad=context.load;
+ context.load=async()=>({notModified:true});
+ await poll();
+ ok(grids===1&&carts===1,'poll: HTTP 304 skips unnecessary redraws');
+ context.load=previousLoad;
+ context.S={p:[{...p1,s:7}]};
+ await poll();
+ ok(grids===2&&carts===2,'poll: stock changes refresh product availability');
+ context.document.hidden=true;
+ await poll();
+ ok(loads===3,'poll: hidden browser tabs pause state requests');
+ context.document.hidden=false;
+ context.document.activeElement={classList:{contains:name=>name==='qn'}};
+ await poll();
+ ok(loads===3,'poll: quantity input is not interrupted by background refresh');
+ context.document.activeElement=null;
+ context.load=()=>new Promise(resolve=>{resolveLoad=resolve});
+ const first=poll(),second=poll();
+ ok(loads===3,'poll: overlapping refresh requests do not start a second fetch');
+ resolveLoad({state:true});
+ await Promise.all([first,second]);
+ context.tab='live';
+ await poll();
+ ok(live===1,'poll: live-sales tab retains its own refresh');
+})());
 
 Promise.all(pending).then(()=>process.exit(bad?1:0),e=>{console.log('FAIL test crashed: '+e);process.exit(1)});

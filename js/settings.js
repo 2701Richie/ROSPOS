@@ -10,9 +10,9 @@ $('#rctest').onclick=()=>rcptPopup(rcptTestBlocks(rcForm()));
 $('#sr').onclick=drawSet;
 $('#ss').onclick=async()=>{const m=$('#sm');m.className='err settings-message';m.textContent='';const hours=Number($('#sh').value),days=Number($('#sd').value);if(!Number.isFinite(hours)||hours<1||hours>72){m.textContent='Sign-in duration must be between 1 and 72 hours.';$('#sh').focus();return}if(!Number.isInteger(days)||days<7||days>365){m.textContent='Backup retention must be a whole number from 7 to 365 days.';$('#sd').focus();return}if(!$('#sp').value){m.textContent='Enter your current password to confirm these changes.';$('#sp').focus();return}const r=await api('/api/settings',{store:$('#sn').value,rc_addr:$('#rcad').value,rc_phone:$('#rcph').value,rc_tag:$('#rctg').value,rc_foot:$('#rcft').value,session_hours:$('#sh').value,backup_days:$('#sd').value,password:$('#sp').value});$('#sp').value='';if(r.error){m.textContent=r.error;return}applyBrand();drawSet();m.className='mu settings-message';m.textContent=r.msg||'Settings saved.'};
 $('#sp').onkeydown=e=>{if(e.key==='Enter')$('#ss').click()};
-// Theme button (every role, this device only): Automatic -> Light -> Dark. Saved in the browser, applied early by a script in index.html.
-const THEMES=['auto','light','dark'],TH_ICON={auto:'◐',light:'☀',dark:'☾'},TH_NAME={auto:'Automatic',light:'Light',dark:'Dark'};
+// Device-local appearance choice; staff and managers can access Appearance without store settings.
+const THEMES=['auto','light','dark'];
 function themeGet(){try{const t=localStorage.getItem('pos-theme');return t==='light'||t==='dark'?t:'auto'}catch(e){return 'auto'}}
-function themeApply(t){const r=document.documentElement,b=$('#tb');if(t==='auto')delete r.dataset.theme;else r.dataset.theme=t;b.textContent=TH_ICON[t];b.title='Theme: '+TH_NAME[t]+' (tap to change)';b.setAttribute('aria-label','Theme: '+TH_NAME[t]+'. Tap to change.')}
-$('#tb').onclick=()=>{const n=THEMES[(THEMES.indexOf(themeGet())+1)%THEMES.length];try{if(n==='auto')localStorage.removeItem('pos-theme');else localStorage.setItem('pos-theme',n)}catch(e){}themeApply(n)};
+function themeApply(t){const r=document.documentElement;if(t==='auto')delete r.dataset.theme;else r.dataset.theme=t;$('#themeChoice').value=t}
+$('#themeChoice').onchange=()=>{const t=$('#themeChoice').value;try{if(t==='auto')localStorage.removeItem('pos-theme');else localStorage.setItem('pos-theme',t)}catch(e){}themeApply(t)};
 themeApply(themeGet());
