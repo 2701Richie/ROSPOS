@@ -941,7 +941,7 @@ def r_change(b, ip):
 
 
 def r_restore(b, ip):
-    global S
+    global S, _ID_FLOOR
     reauth(ip, b, "owner")
     d = b.get("data") or b
     if not isinstance(d, dict) or not all(isinstance(d.get(k), list) for k in ("p", "s")):
@@ -963,6 +963,13 @@ def r_restore(b, ip):
                   or not good_num(line.get("p"))
                   or not (line.get("c") is None or good_num(line.get("c"))) for line in x.get("l", [])) for x in d["s"]):
         raise Err(400, "The backup contains an invalid sale record.")
+    if any(not x.get("dc") and abs(R(sum(l["q"] * l["p"] for l in x["l"])) - x["tot"]) > 0.01 for x in d["s"]):
+        raise Err(400, "The backup contains a sale whose total does not match its items.")  # would corrupt every report
+    if (any(not isinstance(x["id"], int) or isinstance(x["id"], bool) or not x["n"].strip() for x in d["p"])
+            or len({x["id"] for x in d["p"]}) != len(d["p"])):
+        raise Err(400, "The backup contains a repeated or invalid product id or an empty product name.")
+    if len({x["no"] for x in d["s"]}) != len(d["s"]) or any(x["no"] < 1 for x in d["s"]):
+        raise Err(400, "The backup contains a repeated or invalid sale number.")
     if any(not isinstance(x, dict) for x in d.get("g", [])):
         raise Err(400, "The backup contains an invalid activity record.")
     audit = d.get("logs", [])
@@ -998,6 +1005,11 @@ def r_restore(b, ip):
            or not good_num(x.get("unit_cost")) or not good_num(x.get("total")) or not valid_day(x.get("date"))
            for x in purchases):
         raise Err(400, "The backup contains an invalid purchase record.")
+    if any(abs(R(x["quantity"] * x["unit_cost"]) - x["total"]) > 0.01 for x in purchases):
+        raise Err(400, "The backup contains a purchase whose total does not match its quantity and cost.")
+    for x in d["s"]:  # the cash field is display-only; repair a missing or too-small value instead of refusing the whole backup
+        if not good_num(x.get("cash")) or x["cash"] < x["tot"]:
+            x["cash"] = x["tot"]
     # Keep an immediate database-level recovery point before replacing live data.
     for x in d["p"]:  # older or hand-edited backups may lack these; the app expects them on every product
         if not (isinstance(x.get("e"), str) and valid_expiry(x["e"])):
@@ -1010,6 +1022,7 @@ def r_restore(b, ip):
         PENDING_AUDIT_EVENTS.extend(imported_events)
         S = {"p": d["p"], "s": d["s"], "g": d.get("g", []),
              "suppliers": suppliers, "purchases": purchases}
+        _ID_FLOOR = None  # the restored products may use higher ids than any handed out so far
         put("sale_seq", max(get("sale_seq") or 0, max_sale_no(S["s"])))
         safe_archive()
         queue_event("activity", "Backup restored", entity_type="backup", entity_name="Backup restore",
@@ -1032,11 +1045,17 @@ def snapshot(tag):
         os.remove(os.path.join(BACKUP_DIR, old))
 
 
+_ID_FLOOR = None  # highest product id handed out or seen; None = work it out again from the products
+
+
 def new_id():
-    i = int(time.time() * 1000)
-    while prod(i):
-        i += 1
-    return i
+    """Next product id: the clock in milliseconds, but always above every id already used (no list scan per product,
+    which made a 5,000-row import take seconds)."""
+    global _ID_FLOOR
+    if _ID_FLOOR is None:
+        _ID_FLOOR = max([p["id"] for p in S["p"] if isinstance(p.get("id"), int)] + [0])
+    _ID_FLOOR = max(int(time.time() * 1000), _ID_FLOOR + 1)
+    return _ID_FLOOR
 
 
 def key(n):

@@ -9,17 +9,46 @@ let ME=null,tab='sell';
 async function api(path,body){try{const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Requested-With':'pos'},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok){if(r.status===401&&ME){ME=null;showAuth(false)}return{error:j.error||'Something went wrong.'}}if(j.me)ME=j.me;if(j.state){S=j.state;T=S.today;if(typeof badge==='function')badge();if(typeof applyBrand==='function')applyBrand()}return j}catch(e){return{error:'Cannot reach the POS server. Check the Wi-Fi and the laptop.'}}}
 async function load(){const r=await api('/api/state');if(r.error)say(r.error);return r}
 function say(t){$('#msg').textContent=t}
-function tags(p){let t='';if(p.e&&p.e<T)t+='<span class="tag b">Expired</span> ';else if(p.e&&p.e<=ds(90))t+='<span class="tag w">Exp. '+p.e+'</span> ';if(p.s<=p.m)t+='<span class="tag b">Low stock: '+p.s+'</span>';return t}
+function tags(p){let t='';if(p.e&&p.e<T)t+='<span class="tag b">Expired</span> ';else if(p.e&&p.e<=ds(90))t+='<span class="tag w">Exp. '+esc(p.e)+'</span> ';if(p.s<=p.m)t+='<span class="tag b">Low stock: '+p.s+'</span>';return t}
 function show(t){if(!can(PERM[t]||'staff'))t='sell';tab=t;try{localStorage.setItem('pos-tab',['set','acc','logs'].includes(t)?'sell':t)}catch(e){}['sell','live','rcp','prod','pur','rdr','rep','logs','acc','set'].forEach(k=>{$('#v-'+k).hidden=k!==t;const b=document.querySelector('nav [data-t="'+k+'"]');if(b)b.classList.toggle('on',k===t)});if(t==='logs'){document.querySelectorAll('#v-logs > .log-page').forEach(x=>x.hidden=true);$('#log-cabinet-home').hidden=false}if(t==='rep'){document.querySelectorAll('#v-rep [data-report-page]').forEach(x=>x.hidden=true);$('#reportCabinet').hidden=false;drawRep()}if(t==='prod')drawProd();if(t==='pur')drawPurchases();if(t==='rcp')drawRcp();if(t==='rdr')drawRdr();if(t==='acc')drawAcc();if(t==='set')drawSet();if(t==='live')refreshLive()}
 document.querySelector('nav').onclick=e=>{const b=e.target.closest('button');if(b)show(b.dataset.t)};
+// Three navigation modes: hidden, compact, expanded. Remember this device's choice.
+const sidebarToggle=document.querySelector('#sidebarToggle');
+const sidebarHide=document.querySelector('#sidebarHide');
+const sidebarRestore=document.querySelector('#sidebarRestore');
+function setSidebarMode(mode){
+ if(!['hidden','compact','expanded'].includes(mode))mode='compact';
+ document.body.classList.toggle('sidebar-expanded',mode==='expanded');
+ document.body.classList.toggle('sidebar-hidden',mode==='hidden');
+ sidebarToggle.setAttribute('aria-expanded',String(mode==='expanded'));
+ sidebarToggle.setAttribute('aria-label',mode==='expanded'?'Compact navigation':'Expand navigation');
+ sidebarToggle.title=mode==='expanded'?'Compact navigation':'Expand navigation';
+ sidebarToggle.textContent=mode==='expanded'?'‹':'☰';
+ sidebarRestore.hidden=mode!=='hidden';
+ try{localStorage.setItem('pos-sidebar-mode',mode)}catch(e){}
+}
+let savedSidebar='compact';
+try{savedSidebar=localStorage.getItem('pos-sidebar-mode')||'compact'}catch(e){}
+setSidebarMode(savedSidebar);
+sidebarToggle.onclick=()=>setSidebarMode(document.body.classList.contains('sidebar-expanded')?'compact':'expanded');
+sidebarHide.onclick=()=>setSidebarMode('hidden');
+sidebarRestore.onclick=()=>setSidebarMode('compact');
+
 const LV={staff:1,manager:2,owner:3},PERM={sell:'staff',live:'manager',rcp:'staff',pur:'manager',rdr:'staff',prod:'manager',rep:'manager',logs:'manager',acc:'owner',set:'owner'};
 let setupMode=false;
 function can(r){return !!ME&&LV[ME.role]>=LV[r]}
 function fail(r,el){el.textContent=r.error}
-function showAuth(setup){setupMode=setup;$('#auth').hidden=false;$('#at').textContent=setup?'Set up the owner account':'Sign in';$('#afs').hidden=!setup;$('#ago').textContent=setup?'Create account':'Sign in';$('#apw').autocomplete=setup?'new-password':'current-password';['ac','an','au','apw'].forEach(i=>$('#'+i).value='');$('#am').textContent='';$('#'+(setup?'ac':'au')).focus()}
-function applyRole(){$('#who').textContent=ME.name+' ('+ME.role+')';document.querySelectorAll('nav button').forEach(b=>b.hidden=!can(PERM[b.dataset.t]));$('#br').hidden=$('#bpl').hidden=!can('owner')}
+function showAuth(setup){document.body.classList.remove('pos-ready');setupMode=setup;$('#auth').hidden=false;$('#at').textContent=setup?'Set up the owner account':'Sign in';$('#afs').hidden=!setup;$('#ago').textContent=setup?'Create account':'Sign in';$('#apw').autocomplete=setup?'new-password':'current-password';['ac','an','au','apw'].forEach(i=>$('#'+i).value='');$('#am').textContent='';$('#'+(setup?'ac':'au')).focus()}
+function applyRole(){$('#who').textContent=ME.name+' ('+ME.role+')';document.querySelectorAll('.pos-sidebar [data-t]').forEach(b=>b.hidden=!can(PERM[b.dataset.t]));$('#br').hidden=$('#bpl').hidden=!can('owner');document.querySelectorAll('.pos-sidebar .sidebar-divider').forEach(d=>{
+ const visible=x=>x.matches('[data-t]')&&!x.hidden;
+ let prev=d.previousElementSibling,next=d.nextElementSibling;
+ let before=false,after=false;
+ while(prev&&!prev.classList.contains('sidebar-divider')){if(visible(prev))before=true;prev=prev.previousElementSibling}
+ while(next&&!next.classList.contains('sidebar-divider')){if(visible(next))after=true;next=next.nextElementSibling}
+ d.hidden=!(before&&after);
+});document.body.classList.add('pos-ready')}
 function tabSaved(){try{const t=localStorage.getItem('pos-tab');return['sell','live','rcp','prod','pur','rdr','rep'].includes(t)?t:'sell'}catch(e){return'sell'}}
-async function enter(restore){$('#auth').hidden=true;await load();applyRole();drawGrid();drawLines();show(restore?tabSaved():'sell')}
+async function enter(restore){await load();applyRole();drawGrid();drawLines();show(restore?tabSaved():'sell');$('#auth').hidden=true}
 async function boot(){try{const j=await(await fetch('/api/me')).json();if(j.setup)return showAuth(true);if(!j.me)return showAuth(false);ME=j.me;await enter(true)}catch(e){$('#am').textContent='Cannot reach the POS server.'}}
 $('#ago').onclick=async()=>{const m=$('#am');m.textContent='';const r=await api(setupMode?'/api/setup':'/api/login',{code:$('#ac').value,name:$('#an').value,username:$('#au').value,password:$('#apw').value});if(r.error){m.textContent=r.error;$('#apw').value='';return}await enter()};
 $('#apw').onkeydown=e=>{if(e.key==='Enter')$('#ago').click()};

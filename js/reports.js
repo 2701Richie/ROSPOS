@@ -73,7 +73,7 @@ function drawRep(){
  const td=S.s.filter(s=>s.d===T&&!s.v),sum=k=>R(td.reduce((a,s)=>a+s[k],0));drawForecast();drawCost();
  $('#st').innerHTML='<div class="card"><span class="mu">Sales today</span><b>'+td.length+'</b></div><div class="card"><span class="mu">Total today</span><b>'+M(sum('tot'))+'</b></div>';
  const L=(f,g)=>{const a=S.p.filter(f);return a.length?a.map(g).join(''):'<li class="mu">None</li>'};
- $('#al').innerHTML='<div class="card"><h3>Expired</h3><ul>'+L(p=>p.e&&p.e<T,p=>'<li>'+esc(p.n)+' ('+p.e+'), '+p.s+' left</li>')+'</ul></div><div class="card"><h3>Expiring within 90 days</h3><ul>'+L(p=>p.e&&p.e>=T&&p.e<=ds(90),p=>'<li>'+esc(p.n)+' ('+p.e+'), '+p.s+' left</li>')+'</ul></div><div class="card"><h3>Low stock</h3><ul>'+L(p=>p.m>0&&p.s<=p.m,p=>'<li>'+esc(p.n)+': '+p.s+' left</li>')+'</ul></div>';
+ $('#al').innerHTML='<div class="card"><h3>Expired</h3><ul>'+L(p=>p.e&&p.e<T,p=>'<li>'+esc(p.n)+' ('+esc(p.e)+'), '+p.s+' left</li>')+'</ul></div><div class="card"><h3>Expiring within 90 days</h3><ul>'+L(p=>p.e&&p.e>=T&&p.e<=ds(90),p=>'<li>'+esc(p.n)+' ('+esc(p.e)+'), '+p.s+' left</li>')+'</ul></div><div class="card"><h3>Low stock</h3><ul>'+L(p=>p.m>0&&p.s<=p.m,p=>'<li>'+esc(p.n)+': '+p.s+' left</li>')+'</ul></div>';
  $('#rs').innerHTML=S.s.slice(-10).reverse().map(s=>'<tr><td>#'+s.no+(s.v?' (void)':'')+'</td><td>'+s.d+' '+s.t+'</td><td>'+s.l.reduce((a,l)=>a+l.q,0)+'</td><td>'+M(s.tot)+'</td></tr>').join('')||'<tr><td colspan="4" class="mu">No sales yet.</td></tr>'
 }
 $('#bd').onclick=async()=>{
